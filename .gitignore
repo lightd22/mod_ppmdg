@@ -1,0 +1,9 @@
+*.nc
+*.o
+*.png
+*.gif
+*.f90~
+.DS_Store
+*.eps
+*.ps
+/figures
