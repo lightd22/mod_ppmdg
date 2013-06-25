@@ -78,7 +78,8 @@ contains
 	INTEGER :: nex,ney, norder, isdg_x, isdg_y
 	REAL(KIND=8) :: dxel,dyel
     REAL(KIND=8), allocatable, dimension(:) :: DG_xec,DG_yec, DG_nodes,DG_wghts,DG_x,DG_y,DG_foo
-    REAL(KIND=8), allocatable, dimension(:,:) :: DG_u,DG_v, DG_util,DG_vtil,DG_C,DG_D, DG_CINV,DG_rhoq,DG_rhop
+    REAL(KIND=8), allocatable, dimension(:,:) :: DG_u,DG_v, DG_C, DG_rhoq,DG_rhop
+	REAL(KIND=8), allocatable, dimension(:,:,:) :: DG_u, DG_v
 
 
     pi = DACOS(-1D0)
@@ -280,7 +281,7 @@ contains
 
     allocate(DG_nodes(0:norder), DG_wghts(0:norder),STAT=ierr)
     if(nmethod .eq. 99) THEN
-        CALL quad_nodes(norder+1,nodes)
+        CALL quad_nodes(norder+1,DG_nodes)
         CALL quad_weights(norder+1,DG_nodes, DG_wghts)
     end if
     
@@ -307,15 +308,13 @@ contains
             xlambda(0:nx,1:ny),xmonlimit(0:nx,1:ny), &
             ylambda(1:nx,0:ny),ymonlimit(1:nx,0:ny), &
             STAT=ierr)
-       allocate(DG_u(1:nx,1:ny),DG_v(1:nx,1:ny), DG_util(1:nx,1:ny), DG_vtil(1:nx,1:ny), DG_x(1:nx),DG_y(1:ny), &
+       allocate(DG_u(0:norder+1,1:nex,1:ny),DG_v(0:norder+1,1:ney,1:nx), DG_x(1:nx),DG_y(1:ny), &
 				DG_rhoq(1:nx,1:ny),DG_rhop(1:nx,1:ny),STAT=ierr)
-       allocate(DG_C(0:norder,0:norder),DG_CINV(0:norder,0:norder), DG_xec(1:nex),DG_yec(1:ney),STAT=ierr)
+       allocate(DG_C(0:norder,0:norder), DG_xec(1:nex),DG_yec(1:ney),STAT=ierr)
 
        
        DG_u(:,:) = 0.D0
-       DG_util(:,:) = 0.D0
-	   DG_v(:,:) = 0D0
-	   DG_vtil(:,:) = 0D0
+	   DG_v(:,:) = 0.D0
        
        
 
@@ -410,7 +409,7 @@ contains
 	   ! Initialize q, velocity fields for PPM and output directory
        call init2d(ntest,nx,ny,q0,u,v,u2,v2,x,xf,y,yf,tfinal,cdf_out)
 
-       IF(imethod .eq. 99) THEN ! Initialize velocity and q fields at DG grid
+       IF(imethod .ge. 90 .and. imethod .le. 99) THEN ! Initialize velocity fields at DG grid
 			CALL DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,nx,ny,DG_u,DG_v,nmethod,nmethod2)
 	   ELSE IF (imethod .ge. 100) THEN
 			CALL DGinit2d(ntest,norder,nex,ney,DG_x,y,nx,ny,DG_u,DG_v,nmethod,nmethod2)
@@ -487,12 +486,10 @@ contains
           jcbn(:,j) = dx*dy(j)
           utilde(:,j) = u(:,j)*dy(j)                    ! Dev: Scales so that utilde = u*dy
           u2tilde(:,j) = u2(:,j)*dy(j)
-          DG_util(:,j) = DG_u(:,j)
        end do
        do i = 1,nx
           vtilde(i,:) = v(i,:)*dx(i)                    ! Dev: Scales so that vtilde = v*dx
           v2tilde(i,:) = v2(i,:)*dx(i)
-		  DG_vtil(i,:) = DG_v(i,:)
        end do
 
 
@@ -527,7 +524,7 @@ contains
              call skamstep_2d(q,dqdt,utilde,vtilde,u2tilde,v2tilde, &
                   rho,rhoq,rhoprime,nx,ny,npad,dt,jcbn,&
                   xlambda,xmonlimit,ylambda,ymonlimit,& 
-                  DG_util,DG_vtil,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C)
+                  DG_u,DG_v,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C)
 !!$          end if
 
           time = time + dt
@@ -902,34 +899,80 @@ contains
   end subroutine init2d
 
   ! Initialize DG arrays DGu, DGv, and DGq
-  SUBROUTINE DGinit2d(ntest,norder,nex,ney,x,y,nx,ny,DGu,DGv,nmethodx,nmethody)
+  SUBROUTINE DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu,DGu_edge,DGv,DGv_edge)
+	! Computes the initial condtions for the u and v velocity fields for use in modal DG methods
+	! u and v must be evaluated at quadrature points, as well as at element interfaces, for each level to be swept through 
+	! Outputs are DGu, DGu_edge, DGv, and DGv_edge.
+	! DGu contains horizontal velocities evaluated at quadrature nodes in the x direction for each y level
+	! DGu_edge contains horizontal velocity evalutated at right edge/interface of each element.
+	! DGv and DGv_edge are symmetrically defined, but for y sweeps.
+	! -------------------
 	IMPLICIT NONE
-	INTEGER, INTENT(IN) :: nx,ny,ntest,nex,ney,norder,nmethodx,nmethody
+	INTEGER, INTENT(IN) :: ntest,norder,nex,ney,nx,ny
 	REAL(KIND=8), DIMENSION(1:nx,1:ny),INTENT(OUT) :: DGu,DGv
-	REAL(KIND=8), DIMENSION(1:nx), INTENT(IN) :: x
-	REAL(KIND=8), DIMENSION(1:ny), INTENT(IN) :: y
-	REAL(KIND=8), DIMENSION(1:nx,1:ny) :: psi,psi2
-    REAL(KIND=8), DIMENSION(1:nx,1:ny) :: r
-	REAL(KIND=8) :: PI, tmpr
+	REAL(KIND=8), DIMENSION(1:nex,1:ny),INTENT(OUT) :: DGu_edge
+	REAL(KIND=8), DIMENSION(1:nx,1:ney),INTENT(OUT) :: DGv_edge
+	REAL(KIND=8), DIMENSION(0:nx), INTENT(IN) :: xf
+	REAL(KIND=8), DIMENSION(0:ny), INTENT(IN) :: yf
+	REAL(KIND=8), DIMENSION(1:nex), INTENT(IN) :: DG_xec
+	REAL(KIND=8), DIMENSION(1:ney), INTENT(IN) :: DG_yec
+	REAL(KIND=8), DIMENSION(1:nx,0:ny) :: psi1
+	REAL(KIND=8), DIMENSION(0:nx,1:ny) :: psi2
+	REAL(KIND=8), DIMENSION(1:nex,0:ny) :: psi1Edge
+	REAL(KIND=8), DIMENSION(0:nx,1:ney) :: psi2Edge
+	REAL(KIND=8) :: PI,dxe,dye
 	INTEGER :: i,j,k,cur
 
 	PI = DACOS(-1D0)
+	dxe = DG_xec(2) - DG_xec(1)
+	dye = DG_yec(2) - DG_yec(1)
 
     SELECT CASE(ntest)
 		CASE(1:2) 
 		! Uniform flow: u=v=1, no t dependence
-		DO j=1,ny
+
+		! Evaluate stream function for horizontal velocities
+		DO j=0,ny
 			DO i=1,nx
-				psi(i,j) = -x(i) + y(j)
-			END DO
-		END DO
+				psi1(i,j) = -DG_x(i) + yf(j)
+			ENDDO
+			DO i=1,nex
+				psi1Edge(i,j) = -(DG_xec(i)+dxe/2D0)+yf(j)
+			ENDDO
+		ENDDO
+
+		! Evaluate stream function for vertical velocities
+		DO i=0,nx
+			DO j=1,ny
+				psi2(i,j) = -xf(i) + DG_y(j)
+			ENDDO
+			DO j=1,ney
+				psi2Edge(i,j) = -xf(i) + (DG_yec(j)+dye/2D0)
+			ENDDO
+		ENDDO
 		CASE(5:6,9,15)
 		! LeVeque (1996) Deformation
-		DO j=1,ny
+
+		! Evaluate stream function for horizontal velocities
+		DO j=0,ny
 			DO i=1,nx
-				psi(i,j) = (1D0/PI)*(DSIN(PI*x(i))**2)*(DSIN(PI*y(j))**2)
-			END DO
-		END DO
+				psi1(i,j) = (1D0/PI)*(DSIN(PI*DG_x(i))**2)*(DSIN(PI*yf(j))**2)
+			ENDDO
+			DO i=1,nex
+				psi1Edge(i,j) = (1D0/PI)*(DSIN(PI*(DG_xec(i)+dxe/2D0))**2)*(DSIN(PI*yf(j))**2)
+			ENDDO
+		ENDDO
+
+		! Evaluate stream function for vertical velocities
+		DO i=0,nx
+			DO j=1,ny
+				psi2(i,j) = (1D0/PI)*(DSIN(PI*xf(i))**2)*(DSIN(PI*DG_y(j))**2)
+			ENDDO
+			DO j=1,ney
+				psi2Edge(i,j) = (1D0/PI)*(DSIN(PI*xf(i))**2)*(DSIN(PI*(DG_yec(j)+dye/2D0))**2)
+			ENDDO
+		ENDDO
+
 !		CASE(14:17)
 !	       do j = 0,ny
 !     	      do i = 0,nx
@@ -944,63 +987,40 @@ contains
 !     	  end do
 		CASE(99)
 		! Uniform flow: u=1,v=0, no t dependence
-		DO j=1,ny
+
+		! Evaluate stream function for horizontal velocities
+		DO j=0,ny
 			DO i=1,nx
-				psi(i,j) = y(j)
-			END DO
-		END DO
+				psi1(i,j) =  yf(j)
+			ENDDO
+			DO i=1,nex
+				psi1Edge(i,j) = yf(j)
+			ENDDO
+		ENDDO
+
+		! Evaluate stream function for vertical velocities
+		DO i=0,nx
+			DO j=1,ny
+				psi2(i,j) = DG_y(j)
+			ENDDO
+			DO j=1,ney
+				psi2Edge(i,j) = (DG_yec(j)+dye/2D0)
+			ENDDO
+		ENDDO
+
 	END SELECT
 
 	! Compute u velocities from stream function
-	IF(nmethody .lt. 99) THEN
-		! y-grid is not DG
-		DO j = 2,ny
-			DGu(:,j) = (psi(:,j) - psi(:,j-1))/(y(j) - y(j-1))
-		END DO
-		! For the first row, use forward divided difference to stay within domain
-		DGu(:,1) = (psi(:,2) - psi(:,1))/(y(2) - y(1))
-	ELSE
-		! y-grid is DG, with repetition at element edges
-		DO j=1,ney
-			DO k=2,norder+1
-				! Look down for each node except the bottom most in each element
-				cur = k+(j-1)*(norder+1)
-				DGu(:,cur) = (psi(:,cur) - psi(:,cur-1))/(y(cur) - y(cur-1))
-			END DO
-		END DO
-		DO j=2,ney
-			! For the bottom edge node, copy top edge from previous element
-			cur = 1+(j-1)*(norder+1)
-			DGu(:,cur) = DGu(:,cur-1)
-		END DO
-		! At the bottom edge of the physical boundary, use derivative looking up
-		DGu(:,1) = (psi(:,2) - psi(:,1))/(y(2)-y(1))
-	END IF
+	DO j=1,ny
+		DGu(:,j) = (psi1(:,j)-psi1(:,j-1))/(yf(j)-yf(j-1))
+		DGu_edge(:,j) = (psi1Edge(:,j)-psi1Edge(:,j-1))/(yf(j)-yf(j-1))
+	ENDDO
 
 	! Compute v velocities from stream function
-	IF(nmethodx .lt. 99) THEN
-		! x-grid is not DG
-		DO i = 2,nx
-			DGv(i,:) = -(psi(i,:)-psi(i-1,:))/(x(i)-x(i-1))
-		END DO
-		! For the first column, use forward divided difference
-		DGv(:,1) = -(psi(2,:) - psi(1,:))/(x(2) - x(1))	
-	ELSE
-		DO i = 1,nex
-			DO k = 2,norder+1
-				cur = k+(i-1)*(norder+1)
-				! Look left for derivative
-				DGv(cur,:) = -(psi(cur,:) - psi(cur-1,:))/(x(cur) - x(cur-1))
-			END DO
-		END DO
-		DO i = 2,nex	
-			! At left edge of each element, copy right edge from previous element
-			cur = 1+(i-1)*(norder+1)
-			DGv(cur,:) = DGv(cur-1,:)
-		END DO
-		! At left edge of physical boundary, use derivative looking right
-		DGv(1,:) = -(psi(2,:) - psi(1,:))/(x(2)-x(1))
-	END IF
+	DO i=1,nx
+		DGv(i,:) = -1D0*(psi2(i,:)-psi2(i-1,:))/(xf(i)-xf(i-1))
+		DGv_edge(i,:) = -1D0*(psi2Edge(i,:)-psi2Edge(i-1,:))/(xf(i)-xf(i-1))
+	ENDDO
 	
   END SUBROUTINE DGinit2d
   
