@@ -23,20 +23,20 @@ program execute
   write(*,*) '================'
   write(*,*) 'TEST #1'
   write(*,*) '================'
-  call test2dweno(99,48,48,2,3,0.d0,0.d0,-1,0.1d0)
+! call test2dweno(99,24,24,2,3,0.d0,0.d0,10,0.3d0)
 
-  transient = .true.
+  transient = .false.
   write(*,*) '================'
   write(*,*) 'TEST #2'
   write(*,*) '================'
-  call test2dweno(5,48,48,2,3,0.d0,0.d0,-1,0.5d0)
+!  call test2dweno(1,24,24,2,3,0.d0,0.d0,10,0.3d0)
   transient = .false.
 
   transient = .true.
-!  write(*,*) '================'
-!  write(*,*) 'TEST #3'
-!  write(*,*) '================'
-!  call test2dweno(15,48,48,2,3,0.d0,0.d0,41,0.5d0)
+  write(*,*) '================'
+  write(*,*) 'TEST #3'
+  write(*,*) '================'
+  call test2dweno(5,96,96,2,3,0.d0,0.d0,10,0.3d0)
   transient = .false.
 
   nofluxns = .true.
@@ -72,21 +72,23 @@ contains
     real (kind=8), external :: tfcn
     real(kind=4), dimension(2) :: tstart,tend
     real(kind=4) :: t0,tf
+	real(kind=4) :: talpha,tbeta
     character(len=8) :: outdir
 
 	! DG variables
 	INTEGER :: nex,ney, norder, isdg_x, isdg_y
-	REAL(KIND=8) :: dxel,dyel
-    REAL(KIND=8), allocatable, dimension(:) :: DG_xec,DG_yec, DG_nodes,DG_wghts,DG_x,DG_y,DG_foo
-    REAL(KIND=8), allocatable, dimension(:,:) :: DG_u,DG_v, DG_C, DG_rhoq,DG_rhop
-	REAL(KIND=8), allocatable, dimension(:,:,:) :: DG_u, DG_v
+	REAL(KIND=8) :: dxel,dyel,dxm
+    REAL(KIND=8), allocatable, dimension(:) :: DG_xec,DG_yec, DG_nodes,DG_wghts,DG_x,DG_y,DG_FOO
+	INTEGER, ALLOCATABLE, DIMENSION(:) :: IPIV
+    REAL(KIND=8), allocatable, dimension(:,:) :: DG_u,DG_v, DG_uedge,DG_vedge,DG_C,DG_LUC,DG_L,DG_DL
 
 
     pi = DACOS(-1D0)
 
     if(nlev.lt.1) STOP 'nlev should be at least 1 in test2dweno'
 
-    n2 = 6
+    n2 = 4
+	go to 300
     tmp_method(1) = 1  ! PPM no limiting
     tmp_method(2) = 2  ! PPM, positive-definite using FCT
     tmp_method(3) = 6  ! PPM, positive selective limiting using FCT
@@ -98,6 +100,13 @@ contains
     tmp_method(9) = 100 ! PPM/DG Hybrid, no limiting
 	tmp_method(10) = 101 ! PPM/DG Hybrid, positive-definite limiting using FCT
 	tmp_method(11) = 102 ! PPM/DG Hybrid, positive-definite limiting using PMOD
+	300 continue
+
+	tmp_method(1) = 1
+	tmp_method(2) = 2
+	tmp_method(3) = 98
+	tmp_method(4) = 99
+	
 
     do nn = 1,n2
        imethod = tmp_method(nn)
@@ -218,6 +227,7 @@ contains
 		  write(*,*) 'DG, averages, no limiting, N=5'
 		  write(*,*) 'WARNING: Should only be used with periodic BCs'
 		  dodghybrid = .true.
+		  doposlimit = .false.
 		  outdir = 'dgnolim/'
 		  nmethod = 99
 		  nmethod2 = 99
@@ -279,10 +289,18 @@ contains
     ! For DG: Compute gaussian nodes in [-1,1] + weights for quadratures
     ! (only needs to be done once)
 
-    allocate(DG_nodes(0:norder), DG_wghts(0:norder),STAT=ierr)
+    allocate(DG_nodes(0:norder), DG_wghts(0:norder),DG_L(0:norder,0:norder),DG_DL(0:norder,0:norder),STAT=ierr)
     if(nmethod .eq. 99) THEN
+!		write(*,*) 'FILLING IN NODES/WEIGHTS'
         CALL quad_nodes(norder+1,DG_nodes)
         CALL quad_weights(norder+1,DG_nodes, DG_wghts)
+		! Fill in array of Legendre polynomials evaluated at quad nodes + Leg. derivative at quad nodes
+		DO i=0,norder
+			DO j=0,norder
+				DG_L(i,j) = legendre(DG_nodes(j),i)
+				DG_DL(i,j) = dlegendre(DG_nodes(i),j)
+			ENDDO
+		ENDDO
     end if
     
 
@@ -308,16 +326,16 @@ contains
             xlambda(0:nx,1:ny),xmonlimit(0:nx,1:ny), &
             ylambda(1:nx,0:ny),ymonlimit(1:nx,0:ny), &
             STAT=ierr)
-       allocate(DG_u(0:norder+1,1:nex,1:ny),DG_v(0:norder+1,1:ney,1:nx), DG_x(1:nx),DG_y(1:ny), &
-				DG_rhoq(1:nx,1:ny),DG_rhop(1:nx,1:ny),STAT=ierr)
-       allocate(DG_C(0:norder,0:norder), DG_xec(1:nex),DG_yec(1:ney),STAT=ierr)
+       allocate(DG_u(1:nx,1:ny),DG_v(1:nx,1:ny), DG_x(1:nx),DG_y(1:ny),DG_uedge(1:nex,1:ny),DG_vedge(1:nx,1:ney) &
+				,STAT=ierr)
+       allocate(DG_C(0:norder,0:norder),DG_LUC(0:norder,0:norder),IPIV(0:norder),DG_FOO(0:norder),&
+				DG_xec(1:nex),DG_yec(1:ney),STAT=ierr)
 
        
        DG_u(:,:) = 0.D0
 	   DG_v(:,:) = 0.D0
        
        
-
        ! set up x grid
     
        !----------------------
@@ -355,7 +373,10 @@ contains
 	   IF(dodghybrid) THEN
 		CALL Cmat_FILL(norder,DG_nodes,DG_wghts,dx(1),dxel,DG_C) ! Note that C assumes an evenly spaced FV sub-grid
 	   END IF
-
+		! Compute LU decomposition of C, stored in DG_LUC
+		DG_LUC = DG_C
+		DG_FOO = 0D0
+		CALL DGESV(norder+1,1,DG_LUC,norder+1,IPIV,DG_FOO,norder+1,ierr)
        end if
 
 	   ! Set up computational DG y-grid
@@ -366,7 +387,6 @@ contains
          end do
 
         ! Transfer nodes to physical domain
-		! Note: The coordinates of the edges of each element are repeated
          do i = 1,ney
             DG_y(1+(i-1)*(norder+1):i*(norder+1)) = DG_yec(i)+0.5d0*dyel*DG_nodes(0:norder)
          end do
@@ -401,21 +421,17 @@ contains
        q = 0.d0
        dqdt = 0.d0
 
-	   IF(imethod .eq. 99) THEN
-			x = DG_x
-			y = DG_y
-	   END IF
-
+!	   IF(imethod .eq. 99) THEN
+!			x = DG_x
+!			y = DG_y
+!	   END IF
 	   ! Initialize q, velocity fields for PPM and output directory
        call init2d(ntest,nx,ny,q0,u,v,u2,v2,x,xf,y,yf,tfinal,cdf_out)
 
-       IF(imethod .ge. 90 .and. imethod .le. 99) THEN ! Initialize velocity fields at DG grid
-			CALL DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,nx,ny,DG_u,DG_v,nmethod,nmethod2)
-	   ELSE IF (imethod .ge. 100) THEN
-			CALL DGinit2d(ntest,norder,nex,ney,DG_x,y,nx,ny,DG_u,DG_v,nmethod,nmethod2)
-!			write(*,*) maxval(DG_u), maxval(DG_v)
-!			write(*,*) minval(DG_u), minval(DG_v)
-      END IF
+	   ! Initialize velocity fields at DG grid and element edges
+       IF(nmethod .eq. 99 .or. nmethod2 .eq. 99) THEN 
+			CALL DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DG_u,DG_uedge,DG_v,DG_vedge)
+       END IF
        q(1:nx,1:ny) = q0
 
        if (MAX(ABS(MAXVAL(dx)-MINVAL(dx)), &
@@ -466,12 +482,7 @@ contains
 	   ! Checking DG CFL number
 	   ! ----
 	   if(nmethod .eq. 99) THEN
-	    allocate(DG_foo(1:norder))
-		DG_foo = 0D0
-	    DO i = 1,norder
-		 DG_foo(i) = DG_x(i+1)-DG_x(i)
-	    END DO
-!		write(*,*) 'mu = ',MAXVAL(DG_u)*dt/MINVAL(DG_foo)
+!		write(*,*) 'mu = ',MAXVAL(DG_u)*dt/dxm
 	   END IF
 
        if (p.eq.1) call output2d(q(1:nx,1:ny),u,v,&
@@ -501,8 +512,9 @@ contains
        tmp_qmax = MAXVAL(q(1:nx,1:ny))
 
        firststep = .true.
-       do n = 1,nstep          
-          
+       do n = 1,nstep    
+      
+
           if(mod(n,2).eq.1) then
              oddstep = .true.
           else
@@ -521,10 +533,14 @@ contains
 !!$             ylambda = 0.d0
 !!$             ymonlimit = 0
 !!$          else
+          CALL etime(tstart,talpha)
              call skamstep_2d(q,dqdt,utilde,vtilde,u2tilde,v2tilde, &
                   rho,rhoq,rhoprime,nx,ny,npad,dt,jcbn,&
                   xlambda,xmonlimit,ylambda,ymonlimit,& 
-                  DG_u,DG_v,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C)
+                  DG_u,DG_uedge,DG_v,DG_vedge,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
+          CALL etime(tstart,tbeta)
+!		write(*,*) 'Elapsed time:',tbeta-talpha
+
 !!$          end if
 
           time = time + dt
@@ -596,9 +612,9 @@ contains
        deallocate(q,q0,dqdt,u,v,utilde,vtilde,u2,v2,u2tilde,v2tilde, &
             uout,vout,jcbn,dx,x,xf,dy,y,yf,rho,rhoprime,rhoq,&
             xlambda,xmonlimit,ylambda,ymonlimit,STAT=ierr)
-       deallocate(DG_u,DG_util,DG_v,DG_vtil,DG_x,DG_y, STAT=ierr)
-       deallocate(DG_C,DG_xec,DG_yec,STAT=ierr)
-	   deallocate(DG_foo,STAT=ierr)
+       deallocate(DG_u,DG_uedge,DG_v,DG_vedge,DG_x,DG_y, STAT=ierr)
+       deallocate(DG_C,DG_LUC, DG_FOO,DG_xec,DG_yec,STAT=ierr)
+
 
 
 
@@ -713,7 +729,7 @@ contains
        tfinal = 1.d0
        do j = 0,ny
           do i = 0,nx
-             psi(i,j) =  yf(j) ! uniform flow: u=1; v=0
+             psi(i,j) =  -xf(i) !yf(j) ! uniform flow: u=1; v=0
           end do
        end do
     
@@ -782,7 +798,7 @@ contains
        end do
        q = 0.d0
        where (r.lt.1.d0)
-          q = 0.5d0*(1.d0 + cos(pi*r))
+          q = (0.5d0*(1.d0 + cos(pi*r)))**4
        end where
     case (6) ! deformation/return flow applied to smoother cosine bell
        cdf_out =  'weno2d_def_smooth_cosinebell.nc'
@@ -916,6 +932,8 @@ contains
 	REAL(KIND=8), DIMENSION(0:ny), INTENT(IN) :: yf
 	REAL(KIND=8), DIMENSION(1:nex), INTENT(IN) :: DG_xec
 	REAL(KIND=8), DIMENSION(1:ney), INTENT(IN) :: DG_yec
+	REAL(KIND=8), DIMENSION(1:nx), INTENT(IN) :: DG_x
+	REAL(KIND=8), DIMENSION(1:ny), INTENT(IN) :: DG_y
 	REAL(KIND=8), DIMENSION(1:nx,0:ny) :: psi1
 	REAL(KIND=8), DIMENSION(0:nx,1:ny) :: psi2
 	REAL(KIND=8), DIMENSION(1:nex,0:ny) :: psi1Edge
@@ -1026,7 +1044,7 @@ contains
   
   subroutine skamstep_2d(q,dqdt,u0,v0,u2,v2,rho_in,rhoq,rhoprime,nx,ny,npad,dt,jcbn,&
             xlambda,xmonlimit,ylambda,ymonlimit,&
-			DG_u,DG_v,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C)
+			DG_u,DG_uedge,DG_v,DG_vedge,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
 
     !  use forward-in-time Skamarock (2006) scheme
 
@@ -1090,13 +1108,25 @@ contains
 	INTEGER, INTENT(IN) :: nex,ney,norder
     REAL(KIND=8), DIMENSION(1:nx,1:ny) :: DG_uh,DG_vh ! u and v velocities at DG nodes half time step
     REAL(KIND=8), DIMENSION(1:nx,1:ny), INTENT(IN) :: DG_u, DG_v ! u and v velocities at DG nodes at current time
-    REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN):: DG_C
+	REAL(KIND=8), DIMENSION(1:nex,1:ny), INTENT(IN) :: DG_uedge
+	REAL(KIND=8), DIMENSION(1:nx,1:ney), INTENT(IN) :: DG_vedge
+	REAL(KIND=8), DIMENSION(1:nex,1:ny) :: DG_uedgeh
+	REAL(KIND=8), DIMENSION(1:nx,1:ney) :: DG_vedgeh
+
+    REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN):: DG_C,DG_LUC,DG_L,DG_DL
+	INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
     REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_nodes,DG_wghts
 	REAL(KIND=8), INTENT(IN) :: dxel,dyel
 	REAL(KIND=8), DIMENSION(1:nx) :: DG_rhoq1dx,DG_rhop1dx
     REAL(KIND=8), DIMENSION(1:nx) :: DG_u1dx
+	REAL(KIND=8), DIMENSION(1:nex) :: DG_uedge1dx
 	REAL(KIND=8), DIMENSION(1:ny) :: DG_rhoq1dy,DG_rhop1dy
-    REAL(KIND=8), DIMENSION(1:ny) :: DG_v1dx
+    REAL(KIND=8), DIMENSION(1:ny) :: DG_v1dy
+	REAL(KIND=8), DIMENSION(1:ney) :: DG_vedge1dy
+
+	! Timing parameters
+	REAL(KIND=4), DIMENSION(2) :: tstart, tend
+	REAL(KIND=4) :: ta,tb
 
     ! set up boundary types, fluxes, limiting flags
     if(nofluxew) then
@@ -1123,9 +1153,11 @@ contains
     vh = v0
     IF(nmethod .eq. 99) THEN
         DG_uh = DG_u
+		DG_uedgeh = DG_uedge
     END IF
 	IF(nmethod2 .eq. 99) THEN
 		DG_vh = DG_v
+		DG_vedgeh = DG_vedge
 	END IF
 
     if(transient) then
@@ -1133,9 +1165,11 @@ contains
        vh = vh*tfcn(t_temp)
        IF(nmethod .eq. 99) THEN 
            DG_uh = DG_uh*tfcn(t_temp) ! u velocities at mid-timestep at DG nodes
+		   DG_uedgeh = DG_uedgeh*tfcn(t_temp)
        END IF
 	   IF(nmethod2 .eq. 99) THEN
 		   DG_vh = DG_vh*tfcn(t_temp) ! v velocities at mid-timestep at DG nodes
+		   DG_vedgeh = DG_vedgeh*tfcn(t_temp)
 	   END IF
     end if
 
@@ -1216,7 +1250,8 @@ contains
           rhoprime1dx(1:nx) = rhoprime(1:nx,j)
 
           IF(nmethod .eq. 99) THEN
-		   DG_u1dx(1:nx) = DG_uh(1:nx,j)		   
+		   DG_u1dx(1:nx) = DG_uh(1:nx,j)	
+		   DG_uedge1dx(1:nex) = DG_uedgeh(1:nex,j)	   
 		   IF(dodghybrid) THEN
 			! Take values from rhoq and rhoprime arrays (cell averages)
 		   	 DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
@@ -1263,13 +1298,17 @@ contains
           rho1dx(1-npadrho:nx+npadrho) = rho(1-npadrho:nx+npadrho,j)
           rhouh1d(-2:nx+2) = rhouh(-2:nx+2,j)
 
+!		  call etime(tstart,ta)
           call ppmwrap(rhoq1dx,q1dx,rhouh1d,rho1dx,rhoprime1dx,xflx(0,j),dt, &
                        nx,npad,nmaxcfl,xbctype,fxbc, &
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_D,DG_C,DG_CINV,dodghybrid)
+                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,DG_uedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,& 
+					   DG_L,DG_DL,dodghybrid)
+!		  call etime(tend,tb)
+!		  write(*,*) 'Elapsed ppmwrap time:',tb-ta
 
           ! update solution
           q(1:nx,j) = rhoq1dx(1:nx)/rhoprime1dx(1:nx)
@@ -1291,7 +1330,8 @@ contains
           rhoprime1dy(1:ny) = rhoprime(i,1:ny)
 
           IF(nmethod2 .eq. 99) THEN
-		   DG_v1dx(1:ny) = DG_vh(i,1:ny)
+		   DG_v1dy(1:ny) = DG_vh(i,1:ny)
+		   DG_vedge1dy(1:ney) = DG_vedgeh(i,1:ney)
 		   IF(dodghybrid) THEN
 		    DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
 	 	    DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
@@ -1342,7 +1382,8 @@ contains
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DG_v1dx,ney,dyel,norder,DG_nodes,DG_wghts,DG_D,DG_C,DG_CINV,dodghybrid)
+                       DG_rhoq1dy,DG_rhop1dy,DG_v1dy,DG_vedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+					   DG_L,DG_DL,dodghybrid)
 
           yflx(i,:) = tmpflx(:)
           ylambda(i,:) = tmplam(:)
@@ -1371,6 +1412,9 @@ contains
           rhoprime1dy(1:ny) = rhoprime(i,1:ny)
 
           IF(nmethod2 .eq. 99) THEN
+		   DG_v1dy(1:ny) = DG_vh(i,1:ny)	
+		   DG_vedge1dy(1:nex) = DG_vedgeh(i,1:ney)	   
+
 		   IF(dodghybrid) THEN
 		    DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
 	 	    DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
@@ -1422,7 +1466,8 @@ contains
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DG_v1dx,ney,dyel,norder,DG_nodes,DG_wghts,DG_D,DG_C,DG_CINV,dodghybrid)
+                       DG_rhoq1dy,DG_rhop1dy,DG_v1dy,DG_vedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC, IPIV, &
+					   DG_L,DG_DL,dodghybrid)
 
           yflx(i,:) = tmpflx(:)
           ylambda(i,:) = tmplam(:)
@@ -1449,7 +1494,8 @@ contains
           rhoprime1dx(1:nx) = rhoprime(1:nx,j)
 
           IF(nmethod .eq. 99) THEN
-		   DG_u1dx(1:nx) = DG_uh(1:nx,j)		   
+		   DG_u1dx(1:nx) = DG_uh(1:nx,j)	
+		   DG_uedge1dx(1:nex) = DG_uedgeh(1:nex,j)	   
 		   IF(dodghybrid) THEN
 			! Take values from rhoq and rhoprime arrays (cell averages)
 		   	 DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
@@ -1502,7 +1548,8 @@ contains
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_D,DG_C,DG_CINV,dodghybrid)
+                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,DG_uedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+					   DG_L,DG_DL,dodghybrid)
 
           ! update solution
           q(1:nx,j) = rhoq1dx(1:nx)/rhoprime1dx(1:nx)
