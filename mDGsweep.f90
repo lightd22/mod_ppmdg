@@ -10,7 +10,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
 
 	! --- External functions
-	REAL(KIND=DOUBLE), EXTERNAL :: B,NUMFLUX ! RHS function for evolution ODE for kth expansion coefficent
+	REAL(KIND=DOUBLE), EXTERNAL :: B ! RHS function for evolution ODE for kth expansion coefficent
 
 	! --- Inputs
 	INTEGER, INTENT(IN) :: nelem,N ! Number of elements, highest degree of Legendre polynomial being used
@@ -26,13 +26,12 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 
 	! --- Local Variables
 	INTEGER :: i,j,k
-	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqBAR,rpBAR ! Reshaped cell averages
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqBAR,rpBAR,foorq ! Reshaped cell averages
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1) :: A,A1,A2,R,R1,R2 ! Reshaped DG coefficent matricies
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: utild ! Reshaped velocities
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: uedgetild ! Periodically extended edge velocities
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: flxrq, flxrp! Array of fluxes F(j,j+1) (flx(0) is left flux at left edge of domain)
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: fcfrq,fcfrp ! Flux correction factors for positivity limiting
-	REAL(KIND=DOUBLE), DIMENSION(0:N) :: eps
 
 	! -- DGESV parameters
 	REAL(KIND=DOUBLE), DIMENSION(0:N) :: FOO_y
@@ -47,8 +46,6 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! R(k,j) gives a_k(t) in the jth element for rho
     ! ########################################
 
-	eps = 1D-13!epsilon(1D0)
-
     ! Reform incoming values to be more convienent
     DO j=1,nelem
         rqBAR(:,j) = rhoq(1+(N+1)*(j-1) : (N+1)*j)
@@ -57,8 +54,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
     END DO
 		uedgetild(1:nelem) = uedge(1:nelem)
 
-    ! For hybrid, values incoming assumed to be cell averages, invert with CmatINV, giving coefficents a_k(t) 
-	! which when averaged over the evenly spaced subcells in each element, give the incoming values.
+    ! For hybrid, values incoming assumed to be cell averages, project onto basis, giving coefficents a_k(t) 
+	! which corresp. to series that, when averaged over the evenly spaced subcells in each element, result in the incoming values.
 	IF(dodghybrid) THEN
 
 		! Construct RHS using IPIV array
@@ -109,6 +106,17 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 		STOP 'ERROR in mDGsweep.f90: cannot call modal DG without cell averages'
 	END IF
 
+	IF(doposlimit) THEN
+		DO j=1,nelem
+!			A(0,j) = MAX(A(0,j),0D0)
+!			write(*,*) 2D0*A(0,j) - (2D0/(N+1))*SUM(rqBAR(:,j))
+			IF(A(0,j) .lt. 0D0) THEN
+				write(*,*) '!!! ~~ WARNING:: MASS AFTER PROJECTION IS NEGATIVE! j=',j
+				write(*,*) 'DG MASS:',2D0*A(0,j)
+				write(*,*) 'AV MASS:',(2D0/(DBLE(N+1)))*SUM(rqBAR(:,j))
+			ENDIF
+		ENDDO		
+	ENDIF
 	! -- Enforce periodicity
 	A(:,0) = A(:,nelem)
 	A(:,nelem+1) = A(:,1)
@@ -120,10 +128,13 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
     ! Time step using SSPRK3
     ! #######################
 
-	DO j=0,nelem
-		flxrq(j) = NUMFLUX(A,j,j+1,uedgetild(j),N,nelem)
-		flxrp(j) = NUMFLUX(R,j,j+1,uedgetild(j),N,nelem)
-	ENDDO
+!	DO j=0,nelem
+!		flxrq(j) = NUMFLUX(A,j,j+1,uedgetild(j),N,nelem)
+!		flxrp(j) = NUMFLUX(R,j,j+1,uedgetild(j),N,nelem)
+!	ENDDO
+
+	CALL NUMFLUX(A,uedgetild,N,nelem,flxrq)
+	CALL NUMFLUX(R,uedgetild,N,nelem,flxrp)
 	
 	! Determine flux correction factors
 	fcfrq = 1d0 ! By default, do no corrections
@@ -148,10 +159,14 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	R1(:,nelem+1) = R1(:,1)
 
 	! Compute fluxes
-	DO j=0,nelem
-		flxrq(j) = NUMFLUX(A1,j,j+1,uedgetild(j),N,nelem)
-		flxrp(j) = NUMFLUX(R1,j,j+1,uedgetild(j),N,nelem)
-	END DO
+!	DO j=0,nelem
+!		flxrq(j) = NUMFLUX(A1,j,j+1,uedgetild(j),N,nelem)
+!		flxrp(j) = NUMFLUX(R1,j,j+1,uedgetild(j),N,nelem)
+!	END DO
+
+	CALL NUMFLUX(A1,uedgetild,N,nelem,flxrq)
+	CALL NUMFLUX(R1,uedgetild,N,nelem,flxrp)
+
 
 	! Determine flux correction factors
 	IF(doposlimit) THEN
@@ -164,8 +179,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! -- Second step
 	DO j = 1, nelem
 		DO k = 0, N
-			A2(k,j) = (3D0/4D0)*A(k,j) + (1D0/4D0)*(A1(k,j) + dt*B(A1,flxrq,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))
-			R2(k,j) = (3D0/4D0)*R(k,j) + (1D0/4D0)*(R1(k,j) + dt*B(R1,flxrp,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))
+			A2(k,j) = (0.75D0)*A(k,j) + (0.25D0)*(A1(k,j) + dt*B(A1,flxrq,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))
+			R2(k,j) = (0.75D0)*R(k,j) + (0.25D0)*(R1(k,j) + dt*B(R1,flxrp,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))
 		END DO
 	END DO
 
@@ -176,10 +191,13 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	R2(:,nelem+1) = R2(:,1)
 
 	! Compute fluxes
-	DO j=0,nelem
-		flxrq(j) = NUMFLUX(A2,j,j+1,uedgetild(j),N,nelem)
-		flxrp(j) = NUMFLUX(R2,j,j+1,uedgetild(j),N,nelem)
-	END DO
+!	DO j=0,nelem
+!		flxrq(j) = NUMFLUX(A2,j,j+1,uedgetild(j),N,nelem)
+!		flxrp(j) = NUMFLUX(R2,j,j+1,uedgetild(j),N,nelem)
+!	END DO
+	CALL NUMFLUX(A2,uedgetild,N,nelem,flxrq)
+	CALL NUMFLUX(R2,uedgetild,N,nelem,flxrp)
+
 
 	! Determine flux correction factors
 	IF(doposlimit) THEN
@@ -209,8 +227,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
     ! After time stepping, use DG_C to average the series expansion to cell-averaged values
     ! on evenly spaced grid for finite volumes
 	    DO j = 1,nelem
-			rqBAR(:,j) = MATMUL(DG_C,A(:,j)) + eps
-			rpBAR(:,j) = MATMUL(DG_C,R(:,j)) + eps
+			rqBAR(:,j) = MATMUL(DG_C,A(:,j))
+			rpBAR(:,j) = MATMUL(DG_C,R(:,j))
 	    END DO
 	ELSE
 	! Otherwise, just send back DG coefficents
@@ -220,6 +238,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 		STOP 'ERROR in mDGsweep.f90: cannot call modal DG without cell averages'
 	END IF
 
+go to 999
 	IF(doposlimit) THEN
 		DO j=1,nelem
 
@@ -232,10 +251,11 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 				write(*,*) 'j=',j,'Av Mj=',(2D0/(N+1))*SUM(rqBAR(:,j))
 			END IF
 		END IF
-	
+
+
 		END DO
 	END IF
-
+999 continue
 	! #######
 	! END CELL AVERAGING
 	! #######
@@ -247,9 +267,6 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 		END IF
 
 		! Write pre- mass redistribution cell values
-!		DO j=1,nelem
-!			prefill(1+(N+1)*(j-1) : (N+1)*j) = rqBAR(:,j)
-!		END DO
 
 		CALL MFILL(rqBAR,N,nelem)
 		CALL MFILL(rpBAR,N,nelem)
@@ -342,6 +359,36 @@ REAL(KIND=KIND(1D0)) FUNCTION NUMFLUX(Ain,jleft,jright,u,N,nelem)
 
 END FUNCTION NUMFLUX
 
+SUBROUTINE NUMFLUX(A,u,N,nelem,flx)
+	USE mDGmod
+	IMPLICIT NONE
+	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
+	! -- Inputs
+	INTEGER, INTENT(IN) :: N,nelem
+	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1), INTENT(IN) :: A
+	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: u
+
+	! -- Outputs	
+	REAL(KIND=DOUBLE),DIMENSION(0:nelem), INTENT(OUT) :: flx
+
+	! -- Local variables
+	REAL(KIND=DOUBLE), DIMENSION(0:N) :: foo
+	INTEGER :: k,j
+
+	DO j=0,nelem
+		IF(u(j) .ge. 0D0) then
+			flx(j) = u(j)*SUM(A(:,j))
+		ELSE
+			DO k=0,N
+				foo(k) = ((-1D0)**k)*A(k,j+1)
+			ENDDO
+			flx(j) = u(j)*SUM(foo)
+		ENDIF
+	ENDDO
+
+END SUBROUTINE NUMFLUX
+
+
 SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 	! Computes flux reductions factors to prevent total mass within each element from going negative
 	! Outputs fluxcf. fluxcf(j) is the reduction factor for the right face of element j, 
@@ -361,7 +408,7 @@ SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem+1) :: R ! Reduction ratio for outward fluxes so that element j has non-negative values (1D0 indicates no limiting needed)
 	INTEGER :: j,k
 
-	eps = 10.D-6 ! Small parameter used to ensure no division by 0
+	eps = 1D-16 ! Small parameter used to ensure no division by 0
 
 	DO j=1,nelem
 		! Compute maximum allowable flux out of element j based on which substep of ssprk3 we are on
@@ -425,25 +472,28 @@ SUBROUTINE MFILL(rhoq,N,nelem)
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(INOUT) :: rhoq
 	! -- Local Variables
 	INTEGER :: j,k
-	REAL(KIND=DOUBLE) :: r,Mp,Mn
-
+	REAL(KIND=DOUBLE) :: r,Mp,Mt
 
 	DO j=1,nelem
 		Mp = 0D0
-		Mn = 0D0
+		Mt = 0D0
+
 		DO k=0,N
-			IF(rhoq(k,j) .ge. 0D0) THEN
-				Mp = Mp + rhoq(k,j) ! Collect positive mass
-			ELSE
-				Mn = Mn + rhoq(k,j) ! Collect 'negative' mass
-				rhoq(k,j) = 0D0 ! Zero out negatives
-			ENDIF
+			Mt = Mt + rhoq(k,j)
+			rhoq(k,j) = MAX(0D0,rhoq(k,j)) ! Zero out negative masses
+			Mp = Mp + rhoq(k,j)
 		ENDDO
-		r = 1D0 + (Mn/Mp)
+!		IF(Mp .eq. 0D0) THEN
+!			write(*,*) 'OH NO!! BIG TROUBLE!'
+!		ENDIF
+
+!		r = MAX(Mt,0D0)/(Mp+1D-14)
+		r = MAX(Mt,0D0)/MAX(Mp,TINY(1D0))
 		IF(r .gt. 1D0) THEN
-			write(*,*) 'WARNING REDUCTION RATIO > 1!!'
+			write(*,*) 'WARNING REDUCTION RATIO > 1.0!!'
 		ENDIF
 		rhoq(:,j) = r*rhoq(:,j) ! Reduce remaining positive masses by reduction factor
+
 	ENDDO
 
 END SUBROUTINE MFILL
