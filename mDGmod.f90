@@ -107,6 +107,7 @@ MODULE mDGmod
 
             DO k = 0,M-1
                 wghts(k) = 2D0*(1-nodes(k)**2)/((M*legendre(nodes(k),M-1))**2)
+				!wghts(k) = 2D0/( (1-nodes(k)**2)*(dlegendre(nodes(k),M))**2 )
             END DO
 
         END SUBROUTINE quad_weights

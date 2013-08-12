@@ -147,8 +147,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! -- First step
 	DO j=1,nelem	
 		DO k=0,N
-			A1(k,j) = A(k,j) + dt*B(A,flxrq,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k))
-			R1(k,j) = R(k,j) + dt*B(R,flxrp,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k))
+			A1(k,j) = A(k,j) + (dt/dxel)*B(A,flxrq,utild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k))
+			R1(k,j) = R(k,j) + (dt/dxel)*B(R,flxrp,utild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k))
 		END DO
 	END DO
 
@@ -179,8 +179,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! -- Second step
 	DO j = 1, nelem
 		DO k = 0, N
-			A2(k,j) = (0.75D0)*A(k,j) + (0.25D0)*(A1(k,j) + dt*B(A1,flxrq,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))
-			R2(k,j) = (0.75D0)*R(k,j) + (0.25D0)*(R1(k,j) + dt*B(R1,flxrp,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))
+			A2(k,j) = (3D0/4D0)*A(k,j) + (1D0/4D0)*(A1(k,j) + (dt/dxel)*B(A1,flxrq,utild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))
+			R2(k,j) = (3D0/4D0)*R(k,j) + (1D0/4D0)*(R1(k,j) + (dt/dxel)*B(R1,flxrp,utild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))
 		END DO
 	END DO
 
@@ -210,8 +210,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! -- Third step
 	DO j = 1,nelem
 		DO k = 0, N
-			A(k,j) = (1D0/3D0)*A(k,j) + (2D0/3D0)*(A2(k,j) + dt*B(A2,flxrq,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))
-			R(k,j) = (1D0/3D0)*R(k,j) + (2D0/3D0)*(R2(k,j) + dt*B(R2,flxrp,utild,dxel,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))
+			A(k,j) = A(k,j)/3D0 + 2D0*(A2(k,j) + (dt/dxel)*B(A2,flxrq,utild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))/3D0
+			R(k,j) = R(k,j)/3D0 + 2D0*(R2(k,j) + (dt/dxel)*B(R2,flxrp,utild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))/3D0
 		END DO
 	END DO
 
@@ -238,7 +238,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 		STOP 'ERROR in mDGsweep.f90: cannot call modal DG without cell averages'
 	END IF
 
-go to 999
+!go to 999
 	IF(doposlimit) THEN
 		DO j=1,nelem
 
@@ -290,14 +290,13 @@ go to 999
 
 END SUBROUTINE mDGsweep
 
-REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,dxel,wghts,nodes,k,j,nelem,N,fluxcf,Leg,dLeg) 
+REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,wghts,nodes,k,j,nelem,N,fluxcf,Leg,dLeg) 
 	IMPLICIT NONE
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
 
 	! --- Inputs
 	INTEGER, INTENT(IN) :: nelem, N
 	INTEGER, INTENT(IN) :: k,j ! Mode number, element number
-	REAL(KIND=DOUBLE), INTENT(IN) :: dxel
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes,dLeg
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1), INTENT(IN) :: Ain
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(IN) :: utild
@@ -310,14 +309,14 @@ REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,dxel,wghts,nodes,k,j,nelem,N,fluxc
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: fluxcf
  
 	! --- Local variables
-	REAL(KIND=DOUBLE), DIMENSION(0:N) :: HOLDER1
+	REAL(KIND=DOUBLE), DIMENSION(0:N) :: HOLDER
 	INTEGER :: i
 
 	DO i=0,N
-		HOLDER1(i) = wghts(i)*utild(i,j)*dLeg(i)*SUM(Ain(:,j)*Leg(:,i))
+		HOLDER(i) = wghts(i)*utild(i,j)*dLeg(i)*SUM(Ain(:,j)*Leg(:,i))
 	END DO
 
-	B = SUM(HOLDER1)
+	B = SUM(HOLDER)
 
 
 	IF(k .eq. 0) THEN
@@ -326,38 +325,9 @@ REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,dxel,wghts,nodes,k,j,nelem,N,fluxc
 		B = B - flx(j) + ((-1D0)**k)*flx(j-1)
 	END IF
 	
-	B = B*((2*k+1)/dxel)
+	B = (2D0*k+1D0)*B
 
 END FUNCTION B
-
-REAL(KIND=KIND(1D0)) FUNCTION NUMFLUX(Ain,jleft,jright,u,N,nelem)
-	USE mDGmod
-	IMPLICIT NONE
-	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
-	! -- Inputs
-	INTEGER, INTENT(IN) :: N,nelem,jleft,jright
-	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1), INTENT(IN) :: Ain
-	REAL(KIND=DOUBLE), INTENT(IN) :: u ! Velocity at element interface
-
-	! -- Local variables
-	REAL(KIND=DOUBLE), DIMENSION(0:N) :: foo
-	INTEGER :: k
-
-	foo = 0d0
-
-	! -- Note that it is assumed that left and right hand limits of velocities are the same
-	! -- Also note that because the Legendre basis functions are all +1 at xi = 1D0, and +-1 at xi = -1D0, there may be
-	!	 some optimization that we can do here..
-	IF(u>0D0) THEN
-		NUMFLUX = u*SUM(Ain(:,jleft))
-	ELSE
-		DO k=0,N
-			foo(k) = ((-1D0)**k)*Ain(k,jright) ! (-1**k) since legendre polys alternate sign at -1
-		END DO
-		NUMFLUX = u*SUM(foo)
-	END IF
-
-END FUNCTION NUMFLUX
 
 SUBROUTINE NUMFLUX(A,u,N,nelem,flx)
 	USE mDGmod
@@ -387,7 +357,6 @@ SUBROUTINE NUMFLUX(A,u,N,nelem,flx)
 	ENDDO
 
 END SUBROUTINE NUMFLUX
-
 
 SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 	! Computes flux reductions factors to prevent total mass within each element from going negative
@@ -460,7 +429,6 @@ SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 	END DO
 
 END SUBROUTINE FLUXCOR
-
 
 SUBROUTINE MFILL(rhoq,N,nelem)
 	! Subroutine for mass filling within an element to remove negative cell averaged values
