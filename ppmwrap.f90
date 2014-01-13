@@ -2,7 +2,8 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
      N,npad,nmaxcfl,bctype,fbc, &
      dosemilagr,doselect,domonotonic,dopositive,dopcm,doweno, &
      scale,nmethod,lambdamax,epslambda,lambda,monlimit, &
-     DG_rhoq,DG_rhop,DG_u,num_elem,elemdx,nnodes,DG_nodes,DG_wghts,DG_D,DG_C,DG_CINV,dodghybrid)
+     DG_rhoq,DG_rhop,DG_u,DG_uedge,num_elem,elemdx,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL, &
+     dodghybrid,dorhoupdate,jcbn1d)
 
   implicit none
 
@@ -36,13 +37,15 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
   integer :: limiter, its, ite, idata_s, idata_e, ims, ime
 
   ! DG Parameters
-  INTEGER, INTENT(IN) :: num_elem,nnodes
-  LOGICAL, INTENT(IN) :: dodghybrid
+  INTEGER, INTENT(IN) :: num_elem,norder
+  LOGICAL, INTENT(IN) :: dodghybrid,dorhoupdate
   REAL(KIND=8), INTENT(IN) :: elemdx
-  REAL(KIND=8), DIMENSION(0:nnodes), INTENT(IN) :: DG_nodes, DG_wghts
-  REAL(KIND=8), DIMENSION(0:nnodes,0:nnodes), INTENT(IN) ::DG_D,DG_C,DG_CINV
+  REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_nodes, DG_wghts
+  REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN) ::DG_C,DG_LUC,DG_L,DG_DL
+  INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
   REAL(KIND=8), DIMENSION(1:N), INTENT(IN) :: DG_u
-  REAL(KIND=8), DIMENSION(1:N), INTENT(INOUT) :: DG_rhoq, DG_rhop
+  REAL(KIND=8), DIMENSION(1:num_elem), INTENT(IN) :: DG_uedge
+  REAL(KIND=8), DIMENSION(1:N), INTENT(INOUT) :: DG_rhoq, DG_rhop,jcbn1d
 
 
   nselpad = 0
@@ -110,10 +113,11 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
              rhoq(1:N) = rhop(1:N)*q(1:N)
              lambda(:) = 0.
              monlimit(:) = 0.
-     case(99) ! PPM/DG Hybrid
-		! The inputs here are the DGrhoq and DGrhop nodal values which will be updated via SSPRK3, then evaluated at the evenly spaced grid
+     case(99) ! Modal DG
+		! The inputs here are the DGrhoq and DGrhop cell average values which will be updated via SSPRK3, then evaluated at the evenly spaced grid
 		! and stored as rhoq and rhop, which are used for computing q on the plotting grid
-        CALL dgsweep(DG_rhoq,DG_rhop,num_elem,elemdx,nnodes,DG_nodes,DG_wghts,DG_u,N,DG_D,DG_C,DG_CINV,dodghybrid,dt) 
+		 CALL mDGsweep(DG_rhoq,DG_rhop,DG_u,DG_uedge,elemdx,num_elem,norder,DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,&
+					   IPIV,dt,dodghybrid,dopositive,dorhoupdate,jcbn1d)
      case default
         write(*,*) 'nmethod = ', nmethod
         STOP 'in ppmwrap.f90: no CFL<1 method with this nmethod'
