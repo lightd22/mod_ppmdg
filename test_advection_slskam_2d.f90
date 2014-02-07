@@ -20,29 +20,36 @@ program execute
   transient = .false.
   transient2 = .false.
   transient3 = .false.
+  dotimesteptest = .FALSE.
+
 
   write(*,*) '================'
-  write(*,*) 'TEST #1: Square wave '
+  write(*,*) 'TEST #0: Uniform field in Deformation flow'
   write(*,*) '================'
-  start_res = 8*(4+1)
-  transient = .true.
-!  call test2dweno(15,start_res,start_res,2,3,0.d0,0.d0,20,1D0/(2D0*4D0-1D0)) !1D0/(2D0*4D0-1D0)
-  transient = .false.
+  start_res = 4*(4+1)
+  transient = .TRUE.
+!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,1D0/(2D0*4D0-1D0)) !1D0/(2D0*4D0-1D0)
+ 
 
-  transient = .true.
+  write(*,*) '================'
+  write(*,*) 'TEST #1: Constant Advection of Sine wave '
+  write(*,*) '================'
+  transient = .FALSE.
+  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,1D0/(2D0*4D0-1D0)) !1D0/(2D0*4D0-1D0)
 
-  dotimesteptest = .TRUE.
+
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
-  call test2dweno(6,start_res,start_res,2,1,0.d0,0.d0,20, &
+  transient = .TRUE.
+!  dotimesteptest = .TRUE.
+  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20, &
 				1D0/(2D0*4D0+1D0))
 
-
-  transient = .true.
   write(*,*) '================'
   write(*,*) 'TEST #3: Standard cosbell deformation'
   write(*,*) '================'
+  transient = .true.
 !  call test2dweno(5,start_res,start_res,2,3,0.d0,0.d0,20,0.1d0)
   transient = .false.
 
@@ -94,7 +101,7 @@ contains
 
     if(nlev.lt.1) STOP 'nlev should be at least 1 in test2dweno'
 
-    n2 = 2
+    n2 = 1
 	go to 300
     tmp_method(1) = 1  ! PPM no limiting
     tmp_method(2) = 2  ! PPM, positive-definite using FCT
@@ -109,8 +116,9 @@ contains
 	tmp_method(11) = 102 ! PPM/DG Hybrid, positive-definite limiting using PMOD
 
 	300 continue
+!	tmp_method(1) = 1
 	tmp_method(1) = 98
-	tmp_method(2) = 99
+!	tmp_method(3) = 99
 
 
 
@@ -304,7 +312,7 @@ contains
 		DO i=0,norder
 			DO j=0,norder
 				DG_L(i,j) = legendre(DG_nodes(j),i)
-				DG_DL(i,j) = dlegendre(DG_nodes(i),j)
+				DG_DL(i,j) = dlegendre(DG_nodes(j),i)
 			ENDDO
 		ENDDO
     end if
@@ -528,8 +536,7 @@ contains
           v2tilde(i,:) = v2(i,:)*dx(i)
        end do
 
-
-       rho(1:nx,1:ny) = jcbn(1:nx,1:ny)                 ! Dev: Scales so that rho = rho*dx*dy ; 
+       rho(1:nx,1:ny) = 1D0!jcbn(1:nx,1:ny)                 ! Dev: Scales so that rho = rho*dx*dy ; 
        rhoq(1:nx,1:ny) = rho(1:nx,1:ny)*q(1:nx,1:ny)    ! (note that physical rho == 1, so rho = jac = dx*dy = rho*dx*dy)
        rhoprime(1:nx,1:ny) = rho(1:nx,1:ny)             ! rhov = rho*v*dx ; rhou = rho*u*dy
 
@@ -538,14 +545,13 @@ contains
 
        firststep = .true.
        do n = 1,nstep    
-      
 
           if(mod(n,2).eq.1) then
              oddstep = .true.
           else
              oddstep = .false.
           end if
-          rho(1:nx,1:ny) = jcbn(1:nx,1:ny)
+          rho(1:nx,1:ny) = 1D0!jcbn(1:nx,1:ny)
           rhoq(1:nx,1:ny) = rho(1:nx,1:ny)*q(1:nx,1:ny) ! DEVIN: rhoq = rho*q
           rhoprime(1:nx,1:ny) = rho(1:nx,1:ny)          ! rhoprime = rho to begin
 
@@ -582,7 +588,7 @@ contains
                 uout = u
                 vout = v
              end if
-write(*,*) n,nstep/nout
+
              call output2d(q(1:nx,1:ny),uout,vout,&
             xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf, &
                   time,1,cdf_out,p)
@@ -677,7 +683,7 @@ write(*,*) n,nstep/nout
     psi2(:,:) = 0.d0
 
     select case(ntest)
-    case (1:2)
+    case (1:2,101)
        tfinal = 1.d0
        do j = 0,ny
           do i = 0,nx
@@ -693,7 +699,7 @@ write(*,*) n,nstep/nout
              psi(i,j) = pi*tmpr**2
           end do
        end do
-    case(5:6,9,15)
+    case(5:6,9,15,100)
        tfinal = 5.d0
        do j = 0,ny
           do i = 0,nx
@@ -755,7 +761,7 @@ write(*,*) n,nstep/nout
        tfinal = 1.d0
        do j = 0,ny
           do i = 0,nx
-             psi(i,j) =  - xf(i) + yf(j) !yf(j) ! uniform flow: u=1; v=1
+             psi(i,j) =  - xf(i) + yf(j) ! uniform flow: u=1; v=1
           end do
        end do
     
@@ -931,6 +937,10 @@ write(*,*) n,nstep/nout
           q = 0.5d0*(1.d0 + cos(pi*r))
        end where
 
+	case(100,101) ! uniform field
+		cdf_out = 'weno2d_uniform.nc'
+		q = 1.D0
+
     end select
 
 
@@ -971,7 +981,7 @@ write(*,*) n,nstep/nout
 	dye = DG_yec(2) - DG_yec(1)
 
     SELECT CASE(ntest)
-		CASE(1:2) 
+		CASE(1:2,101) 
 		! Uniform flow: u=v=1, no t dependence
 
 		! Evaluate stream function for horizontal velocities
@@ -993,7 +1003,7 @@ write(*,*) n,nstep/nout
 				psi2Edge(i,j) = -xf(i) + (DG_yec(j)+dye/2D0)
 			ENDDO
 		ENDDO
-		CASE(5:6,9,15)
+		CASE(5:6,9,15,100)
 		! LeVeque (1996) Deformation
 
 		! Evaluate stream function for horizontal velocities
@@ -1131,27 +1141,26 @@ write(*,*) n,nstep/nout
 
 	! DG parameters
 	INTEGER, INTENT(IN) :: nex,ney,norder
-    REAL(KIND=8), DIMENSION(1:nx,1:ny) :: DG_uh,DG_vh ! u and v velocities at DG nodes half time step
-    REAL(KIND=8), DIMENSION(1:nx,1:ny), INTENT(IN) :: DG_u, DG_v ! u and v velocities at DG nodes at current time
+    REAL(KIND=8), DIMENSION(1:nx,1:ny), INTENT(IN) :: DG_u, DG_v ! initial u and v velocities at DG nodes
 	REAL(KIND=8), DIMENSION(1:nex,1:ny), INTENT(IN) :: DG_uedge
 	REAL(KIND=8), DIMENSION(1:nx,1:ney), INTENT(IN) :: DG_vedge
-	REAL(KIND=8), DIMENSION(1:nex,1:ny) :: DG_uedgeh
-	REAL(KIND=8), DIMENSION(1:nx,1:ney) :: DG_vedgeh
+    REAL(KIND=8), DIMENSION(1:nx,1:ny) :: DG_rhou,DG_rhov ! rhou and rhov (needed for mass consistent split)
+	REAL(KIND=8), DIMENSION(1:nex,1:ny) :: DG_rhouedge
+	REAL(KIND=8), DIMENSION(1:nx,1:ney) :: DG_rhovedge
 
     REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN):: DG_C,DG_LUC,DG_L,DG_DL
 	INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
     REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_nodes,DG_wghts
 	REAL(KIND=8), INTENT(IN) :: dxel,dyel
 	REAL(KIND=8), DIMENSION(1:nx) :: DG_rhoq1dx,DG_rhop1dx
-    REAL(KIND=8), DIMENSION(1:nx) :: DG_u1dx
-	REAL(KIND=8), DIMENSION(1:nex) :: DG_uedge1dx
+    REAL(KIND=8), DIMENSION(1:nx) :: DG_rhou1dx
+	REAL(KIND=8), DIMENSION(1:nex) :: DG_rhouedge1dx
 	REAL(KIND=8), DIMENSION(1:ny) :: DG_rhoq1dy,DG_rhop1dy
-    REAL(KIND=8), DIMENSION(1:ny) :: DG_v1dy
-	REAL(KIND=8), DIMENSION(1:ney) :: DG_vedge1dy
+    REAL(KIND=8), DIMENSION(1:ny) :: DG_rhov1dy
+	REAL(KIND=8), DIMENSION(1:ney) :: DG_rhovedge1dy
+	
 
 	LOGICAL :: dorhoupdate
-	REAL(KIND=8), DIMENSION(1:nx) :: jcbn1dx
-	REAL(KIND=8), DIMENSION(1:ny) :: jcbn1dy
 
 	
 	REAL(KIND=8) :: mux,muy
@@ -1184,25 +1193,25 @@ write(*,*) n,nstep/nout
     uh = u0
     vh = v0
     IF(nmethod .eq. 99) THEN
-        DG_uh = DG_u
-		DG_uedgeh = DG_uedge
+        DG_rhou = DG_u
+		DG_rhouedge = DG_uedge
     END IF
 	IF(nmethod2 .eq. 99) THEN
-		DG_vh = DG_v
-		DG_vedgeh = DG_vedge
+		DG_rhov = DG_v
+		DG_rhovedge = DG_vedge
 	END IF
 
     if(transient) then
        uh = uh*tfcn(t_temp)
        vh = vh*tfcn(t_temp)
-       IF(nmethod .eq. 99) THEN 
-           DG_uh = DG_uh*tfcn(t_temp) ! u velocities at mid-timestep at DG nodes
-		   DG_uedgeh = DG_uedgeh*tfcn(t_temp)
-       END IF
-	   IF(nmethod2 .eq. 99) THEN
-		   DG_vh = DG_vh*tfcn(t_temp) ! v velocities at mid-timestep at DG nodes
-		   DG_vedgeh = DG_vedgeh*tfcn(t_temp)
-	   END IF
+!       IF(nmethod .eq. 99) THEN 
+!          DG_uh = DG_uh!*tfcn(t_temp) ! u velocities at mid-timestep at DG nodes
+!		   DG_uedgeh = DG_uedgeh!*tfcn(t_temp)
+!       END IF
+!	   IF(nmethod2 .eq. 99) THEN
+!		   DG_vh = DG_vh!*tfcn(t_temp) ! v velocities at mid-timestep at DG nodes
+!		   DG_vedgeh = DG_vedgeh!*tfcn(t_temp)
+!	   END IF
     end if
 
     if(transient2) then
@@ -1215,6 +1224,7 @@ write(*,*) n,nstep/nout
        uh = u0 + u2*tfcn(t_temp)
        vh = v0 + v2*tfcn(t_temp)
     end if
+
     ! set padding size for each variable
     npadrho = npad-1 + (nmaxcfl+1)/2
     npadu = 2 + (nmaxcfl+1)/2
@@ -1284,10 +1294,9 @@ write(*,*) n,nstep/nout
           IF(nmethod .eq. 99) THEN
 
 		   dorhoupdate = .TRUE.
-		   jcbn1dx(1:nx) = jcbn(1:nx,j)
 
-		   DG_u1dx(1:nx) = DG_uh(1:nx,j)	
-		   DG_uedge1dx(1:nex) = DG_uedgeh(1:nex,j)	  
+		   DG_rhou1dx(1:nx) = DG_rhou(1:nx,j)	
+		   DG_rhouedge1dx(1:nex) = DG_rhouedge(1:nex,j)	  
  
 		   IF(dodghybrid) THEN
 			! Take values from rhoq and rhoprime arrays (cell averages)
@@ -1343,8 +1352,8 @@ write(*,*) n,nstep/nout
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,DG_uedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,& 
-					   DG_L,DG_DL,dodghybrid, dorhoupdate,jcbn1dx)
+                       DG_rhoq1dx,DG_rhop1dx,DG_rhou1dx,DG_rhouedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,& 
+					   DG_L,DG_DL,dodghybrid, dorhoupdate,time, transient)
 
           ! update solution
 		  IF(nmethod .eq. 99) THEN
@@ -1366,12 +1375,10 @@ write(*,*) n,nstep/nout
           rhoprime1dy(1:ny) = rhoprime(i,1:ny)
           IF(nmethod2 .eq. 99) THEN
 
-
 		   dorhoupdate = .FALSE.
-		   jcbn1dy(1:ny) = jcbn(i,1:ny)
 
-		   DG_v1dy(1:ny) = DG_vh(i,1:ny)
-		   DG_vedge1dy(1:ney) = DG_vedgeh(i,1:ney)
+		   DG_rhov1dy(1:ny) = DG_rhov(i,1:ny)
+		   DG_rhovedge1dy(1:ney) = DG_rhovedge(i,1:ney)
 		   IF(dodghybrid) THEN
 		    DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
 	 	    DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
@@ -1423,8 +1430,8 @@ go to 201
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DG_v1dy,DG_vedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
-					   DG_L,DG_DL,dodghybrid,dorhoupdate,jcbn1dy)
+                       DG_rhoq1dy,DG_rhop1dy,DG_rhov1dy,DG_rhovedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+					   DG_L,DG_DL,dodghybrid,dorhoupdate,time,transient)
 
           yflx(i,:) = tmpflx(:)
           ylambda(i,:) = tmplam(:)
@@ -1454,10 +1461,9 @@ go to 201
           IF(nmethod2 .eq. 99) THEN
 
 		   dorhoupdate = .TRUE.
-		   jcbn1dy(1:ny) = jcbn(i,1:nx)
 
-		   DG_v1dy(1:ny) = DG_vh(i,1:ny)	
-		   DG_vedge1dy(1:nex) = DG_vedgeh(i,1:ney)	   
+		   DG_rhov1dy(1:ny) = DG_rhov(i,1:ny)	
+		   DG_rhovedge1dy(1:nex) = DG_rhovedge(i,1:ney)	   
 
 		   IF(dodghybrid) THEN
 		    DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
@@ -1510,8 +1516,8 @@ go to 301
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DG_v1dy,DG_vedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC, IPIV, &
-					   DG_L,DG_DL,dodghybrid,dorhoupdate,jcbn1dy)
+                       DG_rhoq1dy,DG_rhop1dy,DG_rhov1dy,DG_rhovedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC, IPIV, &
+					   DG_L,DG_DL,dodghybrid,dorhoupdate,time,transient)
 
           yflx(i,:) = tmpflx(:)
           ylambda(i,:) = tmplam(:)
@@ -1540,10 +1546,9 @@ go to 301
           IF(nmethod .eq. 99) THEN
 
 		   dorhoupdate = .FALSE.
-		   jcbn1dx(1:nx) = jcbn(1:nx,j)
 
-		   DG_u1dx(1:nx) = DG_uh(1:nx,j)	
-		   DG_uedge1dx(1:nex) = DG_uedgeh(1:nex,j)	   
+		   DG_rhou1dx(1:nx) = DG_rhou(1:nx,j)	
+		   DG_rhouedge1dx(1:nex) = DG_rhouedge(1:nex,j)	   
 		   IF(dodghybrid) THEN
 			! Take values from rhoq and rhoprime arrays (cell averages)
 		   	 DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
@@ -1597,8 +1602,8 @@ go to 401
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,DG_uedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
-					   DG_L,DG_DL,dodghybrid,dorhoupdate,jcbn1dx)
+                       DG_rhoq1dx,DG_rhop1dx,DG_rhou1dx,DG_rhouedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+					   DG_L,DG_DL,dodghybrid,dorhoupdate,time,transient)
 
           ! update solution
 		  IF(nmethod .eq. 99) THEN
