@@ -4,7 +4,7 @@
 ! --------------------------------------------------------------------
 
 SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt, & 
-			        dodghybrid,doposlimit,dorhoupdate,time,transient)
+			        dodghybrid,doposlimit,dorhoupdate,time,transient, scaling)
 	USE mDGmod
 	IMPLICIT NONE
 	
@@ -15,12 +15,12 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 
 	! --- Inputs
 	INTEGER, INTENT(IN) :: nelem,N ! Number of elements, highest degree of Legendre polynomial being used
-	REAL(KIND=DOUBLE), INTENT(IN) :: dxel,dt,time ! Element width, Finite Volume sub-cell width, time step, and current time
+	REAL(KIND=DOUBLE), INTENT(IN) :: dxel,dt,time,scaling ! Element width, Finite Volume sub-cell width, time step, and current time
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes ! Quadrature weights and node locations
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: DG_C, DG_LUC,DG_L,DG_DL! C matrix, used to xfer between grids, LU decomp of C
 	INTEGER, DIMENSION(0:N), INTENT(IN):: IPIV ! Pivot array for RHS when using DG_LUC
-	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: u ! Velocities at quadrature locations within each element
-	REAL(KIND=DOUBLE), DIMENSION(1:nelem), INTENT(IN) :: uedge ! Edge velocities at RHS of each element
+	REAL(KIND=DOUBLE), DIMENSION(0:2,1:(nelem*(N+1))), INTENT(IN) :: u ! Velocities at quadrature locations within each element at 3 time levels (tn, tn+dt,tn+dt/2)
+	REAL(KIND=DOUBLE), DIMENSION(0:2,1:nelem), INTENT(IN) :: uedge ! Edge velocities at RHS of each element at 3 time levels
 
 	LOGICAL, INTENT(IN) :: dodghybrid,doposlimit,dorhoupdate,transient
 	! --- Outputs
@@ -30,8 +30,10 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	INTEGER :: i,j,k
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqBAR,rpBAR,foorq ! Reshaped cell averages
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: A,A1,A2,R,R1,R2 ! Reshaped DG coefficent matricies
-	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: utild,uTmp ! Reshaped velocities
-	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: uedgetild,uEdgeTmp ! Periodically extended edge velocities
+	REAL(KIND=DOUBLE), DIMENSION(0:2,0:N,1:nelem) :: utild ! Reshaped velocities
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: uTmp ! Specfic velocity time level set
+	REAL(KIND=DOUBLE), DIMENSION(0:2,0:nelem) :: uedgetild ! Periodically extended edge velocities
+	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: uEdgeTmp ! Periodically extended edge velocities
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: flxrq, flxrp! Array of fluxes F(j,j+1) (flx(0) is left flux at left edge of domain)
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: fcfrq,fcfrp ! Flux correction factors for positivity limiting
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqQuadVals,rhopQuadVals,qQuadVals
@@ -55,10 +57,10 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
     DO j=1,nelem
         rqBAR(:,j) = rhoq(1+(N+1)*(j-1) : (N+1)*j)
 		rpBAR(:,j) = rhop(1+(N+1)*(j-1) : (N+1)*j)
-        utild(:,j) = u(1+(N+1)*(j-1) : (N+1)*j)
+        utild(0:2,:,j) = u(0:2,1+(N+1)*(j-1) : (N+1)*j)
     END DO
-	uedgetild(1:nelem) = uedge(1:nelem)
-	uedgetild(0) = uedgetild(nelem)
+	uedgetild(0:2,1:nelem) = uedge(0:2,1:nelem)
+	uedgetild(0:2,0) = uedgetild(0:2,nelem)
 
     ! For DG hybrid, values incoming assumed to be cell averages, project onto basis, giving coefficents a_k(t) 
 	! which corresp. to series that, when averaged over the evenly spaced subcells in each element, result in the incoming values.
@@ -124,23 +126,21 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
     ! ####################################################
 
 	! Update velocities to current time
-	uTmp = utild
-	uEdgeTmp = uedgetild
-	if(transient) then
-		uTmp = uTmp*tfcn(time)
-		uEdgeTmp = uEdgeTmp*tfcn(time)
-	endif
+	uTmp = utild(0,:,:)
+	uEdgeTmp = uedgetild(0,:)
+!	if(transient) then
+!		uTmp = uTmp*tfcn(time)
+!		uEdgeTmp = uEdgeTmp*tfcn(time)
+!	endif
 
 	CALL evalExpansion(R,DG_L,rhopQuadVals,rhopEdgeVals,N,nelem)
 	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
 
-!	qQuadVals = rqQuadVals/rhopQuadVals
-!	qEdgeVals = rqEdgeVals/rhopEdgeVals
+	qQuadVals = rqQuadVals/rhopQuadVals
+	qEdgeVals = rqEdgeVals/rhopEdgeVals
 
 	! Note that first update step for rho uses flux (rho*u) from beginning of timestep (assumed to be absorbed into incoming velocity)
-!	CALL NUMFLUX(ones,qEdgeVals,uEdgeTmp,N,nelem,flxrp,flxrq) 
-	CALL NUMFLUX(rhopEdgeVals,rqEdgeVals,uEdgeTmp,N,nelem,flxrp,flxrq) 
-
+	CALL NUMFLUX(scaling*ones,qEdgeVals,uEdgeTmp,N,nelem,flxrp,flxrq) 
 
 	! Determine flux correction factors
 	fcfrp = 1d0 ! By default, do no corrections
@@ -150,31 +150,22 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 		CALL FLUXCOR(A,A,flxrq,DG_C,dxel,dt,nelem,N,1,fcfrq)
 	END IF
 
-	! -- First step
+	! -- First step  
 	DO j=1,nelem	
 		DO k=0,N
-			A1(k,j) = A(k,j) + (dt/dxel)*B(qQuadVals(:,j),qOnes(:),flxrq,uTmp,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
-!			R1(k,j) = R(k,j) + (dt/dxel)*B(qOnes(:),qOnes(:),flxrp,uTmp,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:))
-R1(k,j) = R(k,j)
+!		A1(k,j) = A(k,j) + (dt/dxel)*B(qQuadVals(:,j),rhopQuadVals(:,j),flxrq,uTmp,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
+			A1(k,j) = A(k,j) + (dt/dxel)*B(qQuadVals(:,j),scaling*qOnes,flxrq,uTmp,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
+			R1(k,j) = R(k,j) + (dt/dxel)*B(qOnes(:),scaling*qOnes,flxrp,uTmp,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:))
 		END DO
 	END DO
 
-A = A1
-R = R1
-go to 100
-	! -- Enforce periodicity
-!	R1(:,0) = R1(:,nelem)
-!	R1(:,nelem+1) = R1(:,1)
-!   A1(:,0) = A1(:,nelem)
-!	A1(:,nelem+1) = A1(:,1)
-
 	! Update velocities to new time
-uTmp = utild
-uEdgeTmp = uedgetild
-if(transient) then
-	uTmp = uTmp*tfcn(time+dt)
-	uEdgeTmp = uEdgeTmp*tfcn(time+dt)
-endif
+	uTmp = utild(1,:,:)
+	uEdgeTmp = uedgetild(1,:)
+!	if(transient) then
+!		uTmp = uTmp*tfcn(time+dt)
+!		uEdgeTmp = uEdgeTmp*tfcn(time+dt)
+!	endif
 
 	CALL evalExpansion(R1,DG_L,rhopQuadVals,rhopEdgeVals,N,nelem)
 	CALL evalExpansion(A1,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
@@ -198,23 +189,18 @@ endif
 		DO k = 0, N
 			A2(k,j) = (3D0/4D0)*A(k,j) + (1D0/4D0)*(A1(k,j) + & 
 						(dt/dxel)*B(qQuadVals(:,j),rhopQuadVals(:,j),flxrq,uTmp,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:)))
-!			R2(k,j) = (3D0/4D0)*R(k,j) + (1D0/4D0)*(R1(k,j) + &
-!						(dt/dxel)*B(qOnes(:),rhopQuadVals(:,j),flxrp,uTmp,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:)))
-R2(k,j) = R(k,j)
+			R2(k,j) = (3D0/4D0)*R(k,j) + (1D0/4D0)*(R1(k,j) + &
+						(dt/dxel)*B(qOnes(:),rhopQuadVals(:,j),flxrp,uTmp,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:)))
 		END DO
 	END DO
 
-	! -- Enforce periodicity
-!	R2(:,0) = R2(:,nelem)
-!	R2(:,nelem+1) = R2(:,1)
-
 	! Update velocities to new time
-uTmp = utild
-uEdgeTmp = uedgetild
-if(transient) then
-	uTmp = uTmp*tfcn(time+dt/2d0)
-	uEdgeTmp = uEdgeTmp*tfcn(time+dt/2d0)
-endif
+	uTmp = utild(2,:,:)
+	uEdgeTmp = uedgetild(2,:)
+!	if(transient) then
+!		uTmp = uTmp*tfcn(time+dt/2d0)
+!		uEdgeTmp = uEdgeTmp*tfcn(time+dt/2d0)
+!	endif
 
 	CALL evalExpansion(R2,DG_L,rhopQuadVals,rhopEdgeVals,N,nelem)
 	CALL evalExpansion(A2,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
@@ -239,13 +225,11 @@ endif
 		DO k = 0, N
 			A(k,j) = A(k,j)/3D0 + 2D0*(A2(k,j) + &
 						(dt/dxel)*B(qQuadVals(:,j),rhopQuadVals(:,j),flxrq,uTmp,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:)))/3D0
-!			R(k,j) = R(k,j)/3D0 + 2D0*(R2(k,j) + &
-!						(dt/dxel)*B(qOnes(:),rhopQuadVals(:,j),flxrp,uTmp,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:)))/3D0
-R(k,j) = R(k,j)
+			R(k,j) = R(k,j)/3D0 + 2D0*(R2(k,j) + &
+						(dt/dxel)*B(qOnes(:),rhopQuadVals(:,j),flxrp,uTmp,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:)))/3D0
 		END DO
 	END DO
 
-100 continue
 
 	! #########
 	! END SPPRK3 TIMESTEP ; 	BEGIN CELL AVERAGING
@@ -294,7 +278,6 @@ REAL(KIND=KIND(1D0)) FUNCTION B(qQuadVals,rhopQuadVals,flx,utild,wghts,nodes,k,j
 	INTEGER, INTENT(IN) :: nelem, N
 	INTEGER, INTENT(IN) :: k,j ! Mode number, element number
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes,dLeg
-!	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1), INTENT(IN) :: Ain
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: qQuadVals,rhopQuadVals
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(IN) :: utild
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: Leg
@@ -344,9 +327,10 @@ SUBROUTINE NUMFLUX(rhopEdgeVals,qEdgeVals,rhouEdge,N,nelem,flxrp,flxrq)
 
 	DO j=0,nelem
 		flxrp(j) = 0.5D0*rhopEdgeVals(1,j)*(rhouEdge(j)+DABS(rhouEdge(j)))+0.5D0*rhopEdgeVals(0,j+1)*(rhouEdge(j)-DABS(rhouEdge(j)))
-!		flxrq(j) = 0.5D0*qEdgeVals(1,j)*rhopEdgeVals(1,j)*(rhouEdge(j)+DABS(rhouEdge(j)))+ &
-!					0.5D0*qEdgeVals(0,j+1)*rhopEdgeVals(0,j+1)*(rhouEdge(j)-DABS(rhouEdge(j)))
-		flxrq(j) = 0.5D0*qEdgeVals(1,j)*(rhouEdge(j)+DABS(rhouEdge(j)))+0.5D0*qEdgeVals(0,j+1)*(rhouEdge(j)-DABS(rhouEdge(j)))
+!		flxrq(j) = 0.5D0*qEdgeVals(1,j)*(rhouEdge(j)+DABS(rhouEdge(j)))+0.5D0*qEdgeVals(0,j+1)*(rhouEdge(j)-DABS(rhouEdge(j)))
+		flxrq(j) = 0.5D0*rhopEdgeVals(1,j)*qEdgeVals(1,j)*(rhouEdge(j)+DABS(rhouEdge(j)))+ & 
+				   0.5D0*rhopEdgeVals(0,j+1)*qEdgeVals(0,j+1)*(rhouEdge(j)-DABS(rhouEdge(j)))
+
 	ENDDO
 
 END SUBROUTINE NUMFLUX
