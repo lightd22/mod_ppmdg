@@ -4,7 +4,7 @@
 ! --------------------------------------------------------------------
 
 SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt, & 
-			        doposlimit,stage)
+			        doposlimit,dorhoupdate,stage)
 	USE mDGmod
 	IMPLICIT NONE
 	
@@ -15,16 +15,16 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
 
 	! --- Inputs
 	INTEGER, INTENT(IN) :: nelem,N ! Number of elements, highest degree of Legendre polynomial being used
-	INTEGER, INTENT(IN) :: stage ! Which stage of SSPRK3 to use
+	INTEGER, INTENT(IN) :: stage
 	REAL(KIND=DOUBLE), INTENT(IN) :: dxel,dt! Element width, Finite Volume sub-cell width, time step, 
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes ! Quadrature weights and node locations
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: DG_C, DG_LUC,DG_L,DG_DL! C matrix, used to xfer between grids, LU decomp of C
 	INTEGER, DIMENSION(0:N), INTENT(IN):: IPIV ! Pivot array for RHS when using DG_LUC
 	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: u ! Velocities at quadrature locations within each element at 3 time levels (tn, tn+dt,tn+dt/2)
 	REAL(KIND=DOUBLE), DIMENSION(1:nelem), INTENT(IN) :: uedge ! Edge velocities at RHS of each element at 3 time levels
-	LOGICAL, INTENT(IN) :: doposlimit
+	LOGICAL, INTENT(IN) :: doposlimit,dorhoupdate
 
-	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: rhoq0,rho0 ! Solution at time level n
+	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: rho0,rhoq0 ! Solution at time level n
 	! --- Outputs
 	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(INOUT) :: rhoqIn,rhoIn ! Output solution at next stage level
 
@@ -55,8 +55,8 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
 		
     ! Reshape incoming values to be more convienent
     DO j=1,nelem
-        rqBAR0(:,j) = rhoq0(1+(N+1)*(j-1) : (N+1)*j)
 		rhoBAR0(:,j) = rho0(1+(N+1)*(j-1) : (N+1)*j)
+		rqBAR0(:,j) = rhoq0(1+(N+1)*(j-1) : (N+1)*j)
 
         rqBAR(:,j) = rhoqIn(1+(N+1)*(j-1) : (N+1)*j)
 		rhoBAR(:,j) = rhoIn(1+(N+1)*(j-1) : (N+1)*j)
@@ -72,17 +72,15 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
     ! For DG hybrid, values incoming assumed to be cell averages -> Project onto basis, giving coefficents a_k(t) 
 	! which corresp. to series that, when averaged over the evenly spaced subcells in each element, result in the incoming values.
 
-	CALL projectAverages(A0,DG_LUC,IPIV,rqBAR0,N,nelem)
 	CALL projectAverages(R0,DG_LUC,IPIV,rhoBAR0,N,nelem)
+	CALL projectAverages(A0,DG_LUC,IPIV,rqBAR0,N,nelem)
 
 	CALL projectAverages(AIn,DG_LUC,IPIV,rqBAR,N,nelem)
 	CALL projectAverages(RIn,DG_LUC,IPIV,rhoBAR,N,nelem)
 
 	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem)
 
-    ! ####################################################
-    ! UPDATE rhoQ and rho ; Time step using SSPRK3
-    ! ####################################################
+    ! UPDATE rhoQ and rho ;
 
 !	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
 	CALL evalExpansion(Q,DG_L,qQuadvals,qEdgevals,N,nelem)
@@ -93,48 +91,38 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
 	! Determine flux correction factors
 	fcfrp = 1d0 ! By default, do no corrections
 	fcfrq = 1d0 ! By default, do no corrections
-	IF(doposlimit) THEN
-		CALL FLUXCOR(Rin,R0,flxrp,DG_C,dxel,dt,nelem,N,stage,fcfrp) ! Maybe don't need this? Shouldn't need to limit rho
-		CALL FLUXCOR(Ain,A0,flxrq,DG_C,dxel,dt,nelem,N,stage,fcfrq)
-	END IF
+!	IF(doposlimit) THEN
+!		CALL FLUXCOR(Rin,R0,flxrp,DG_C,dxel,dt,nelem,N,stage,fcfrp) ! Maybe don't need this? Shouldn't need to limit rho
+!		CALL FLUXCOR(Ain,A0,flxrq,DG_C,dxel,dt,nelem,N,stage,fcfrq)
+!	END IF
 
-	SELECT CASE(stage)
-		CASE(1)
-		! -- First stage 
+	! Do forward step
+	DO j=1,nelem	
+		DO k=0,N
+			Aout(k,j) = Ain(k,j) + (dt/dxel)*B(qQuadVals(:,j),rhoQuadVals,flxrq,uTild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
+		END DO
+	END DO
+
+	IF(dorhoupdate) THEN
 		DO j=1,nelem	
 			DO k=0,N
-				Aout(k,j) = Ain(k,j) + (dt/dxel)*B(qQuadVals(:,j),rhoQuadVals,flxrq,uTild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
 				Rout(k,j) = Rin(k,j) + (dt/dxel)*B(qOnes(:),rhoQuadVals,flxrp,uTild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:))	
 			END DO
 		END DO
+	ELSE
+		Rout = R0
+		SELECT CASE(stage)
+			CASE(2)
+				DO j=1,nelem
+					Aout(:,j) = 0.75D0*A0(:,j)+0.25D0*Aout(:,j) 
+				ENDDO
+			CASE(3)
+				DO j=1,nelem
+					Aout(:,j) = (2D0/3D0)*A0(:,j)+(1D0/3D0)*Aout(:,j) 
+				ENDDO
+		END SELECT
+	ENDIF
 
-		CASE(2)
-		! -- Second stage
-		DO j = 1, nelem
-			DO k = 0, N
-			Aout(k,j) = (3D0/4D0)*A0(k,j) + (1D0/4D0)*(Ain(k,j) + & 
-						(dt/dxel)*B(qQuadVals(:,j),rhoQuadVals(:,j),flxrq,uTild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:)))
-			Rout(k,j) = (3D0/4D0)*R0(k,j) + (1D0/4D0)*(Rin(k,j) + &
-						(dt/dxel)*B(qOnes(:),rhoQuadVals(:,j),flxrp,uTild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:)))
-			END DO
-		END DO
-
-		CASE(3)
-		! -- Third stage
-		DO j = 1,nelem
-			DO k = 0, N
-			Aout(k,j) = A0(k,j)/3D0 + 2D0*(Ain(k,j) + &
-						(dt/dxel)*B(qQuadVals(:,j),rhoQuadVals(:,j),flxrq,uTild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:)))/3D0
-			Rout(k,j) = R0(k,j)/3D0 + 2D0*(Rin(k,j) + &
-						(dt/dxel)*B(qOnes(:),rhoQuadVals(:,j),flxrp,uTild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:)))/3D0
-			END DO
-		END DO
-
-	END SELECT
-
-	! #########
-	! END SPPRK3 TIMESTEP ; 	BEGIN CELL AVERAGING
-	! #########
 
     ! After time stepping, use DG_C to average the series expansion to cell-averaged values
     ! on evenly spaced grid for finite volumes

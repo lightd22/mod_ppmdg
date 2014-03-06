@@ -32,11 +32,16 @@ program execute
  
 
   write(*,*) '================'
-  write(*,*) 'TEST #1: Constant Advection '
+  write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
   transient = .FALSE.
   call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
-!  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+
+  write(*,*) '================'
+  write(*,*) 'TEST #1: Constant Horizontal Advection '
+  write(*,*) '================'
+
+  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
 
 
   write(*,*) '================'
@@ -1090,7 +1095,7 @@ contains
 	! Use Strong Stability Preserving RK3 Integrator with Dimensional Splitting
 	IMPLICIT NONE
 
-    REAL(KIND=8), EXTERNAL :: tfcn
+    REAL(KIND=8), EXTERNAL :: tfcn ! Update function for time dependent flows
 
 	! Inputs
 	INTEGER, INTENT(IN) :: nx,ny,npad
@@ -1110,6 +1115,7 @@ contains
 
 	! Local Variables
 	INTEGER :: i,j,stage
+	LOGICAL :: dorhoupdate
 	REAL(KIND=8) :: tstar
 
 	REAL(KIND=8), DIMENSION(1:nx,1:ny) :: rhoqPrime,rhoPrime
@@ -1117,29 +1123,24 @@ contains
 	REAL(KIND=8), DIMENSION(1:nex,1:ny) :: DGuedge
 	REAL(KIND=8), DIMENSION(1:nx,1:ney) :: DGvedge
 
-
 	REAL(KIND=8), DIMENSION(1:nx) :: rhoq1dx,rhop1dx,DGu1dx
 	REAL(KIND=8), DIMENSION(1:nex) :: DG_uedge1dx
 
 	REAL(KIND=8), DIMENSION(1:ny) :: rhoq1dy,rhop1dy,DGv1dy
 	REAL(KIND=8), DIMENSION(1:ney) :: DG_vedge1dy
 
-	! Initialize velocities
+	! Initialize velocities, rhoprime, rhoqprime
 	DGu = DGu0(:,:)
 	DGuedge = DGuedge0(:,:)
 
 	DGv = DGv0(:,:)
 	DGvedge = DGvedge0(:,:)
 
-	! -----
-	! First stage of SSPRK3
-	! -----
-
 	rhoPrime = rho
 	rhoqPrime = rhoq
 
-	DO stage = 1,3
-
+	! SSPRK3 Update loop
+	DO stage = 1,1
 
 	IF(transient) THEN
 		! Update velocities (t* = tn)
@@ -1161,6 +1162,7 @@ contains
 
 	IF(oddstep) THEN ! Alternate x and y sweeps each time step
 		! Perform x sweeps first
+		dorhoupdate = .TRUE.
 		DO j=1,ny
 			rhoq1dx(1:nx) = rhoqPrime(1:nx,j)
 			rhop1dx(1:nx) = rhoPrime(1:nx,j)
@@ -1169,7 +1171,7 @@ contains
 			DG_uedge1dx(1:nex) = DGuedge(1:nex,j)
 
 			CALL mDGsweep(rhoq(1:nx,j),rho(1:nx,j),rhoq1dx,rhop1dx,DGu1dx,DG_uedge1dx,dxel,nex,norder,&
-					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,stage)
+					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,dorhoupdate,stage)
 
 			! Update solution
 			rhoqPrime(1:nx,j) = rhoq1dx(1:nx)
@@ -1177,6 +1179,7 @@ contains
 		ENDDO
 
 		! Now do y sweeps
+		dorhoupdate = .FALSE.
 		DO i=1,nx
 			rhoq1dy(1:ny) = rhoqPrime(i,1:ny)
 			rhop1dy(1:ny) = rhoPrime(i,1:ny)
@@ -1185,7 +1188,7 @@ contains
 			DG_vedge1dy(1:ney) = DGvedge(i,1:ney)
 
 			CALL mDGsweep(rhoq(i,1:ny),rho(i,1:ny),rhoq1dy,rhop1dy,DGv1dy,DG_vedge1dy,dyel,ney,norder,&
-					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,stage)
+					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,dorhoupdate,stage)
 
 			! Update solution
 			rhoqPrime(i,1:ny) = rhoq1dy(1:ny)
@@ -1193,6 +1196,7 @@ contains
 		ENDDO
 	ELSE
 		! Perform y sweeps first
+		dorhoupdate = .TRUE.
 		DO i=1,nx
 			rhoq1dy(1:ny) = rhoq(i,1:ny)
 			rhop1dy(1:ny) = rho(i,1:ny)
@@ -1201,7 +1205,7 @@ contains
 			DG_vedge1dy(1:ney) = DGvedge(i,1:ney)
 
 			CALL mDGsweep(rhoq(i,1:ny),rho(i,1:ny),rhoq1dy,rhop1dy,DGv1dy,DG_vedge1dy,dyel,ney,norder,&
-					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,stage)
+					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,dorhoupdate,stage)
 
 			! Update solution
 			rhoqPrime(i,1:ny) = rhoq1dy(1:ny)
@@ -1209,6 +1213,7 @@ contains
 		ENDDO
 
 		! Now do x sweeps
+		dorhoupdate = .FALSE.
 		DO j=1,ny
 			rhoq1dx(1:nx) = rhoqPrime(1:nx,j)
 			rhop1dx(1:nx) = rhoPrime(1:nx,j)
@@ -1217,13 +1222,21 @@ contains
 			DG_uedge1dx(1:nex) = DGuedge(1:nex,j)
 
 			CALL mDGsweep(rhoq(1:nx,j),rho(1:nx,j),rhoq1dx,rhop1dx,DGu1dx,DG_uedge1dx,dxel,nex,norder,&
-					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,stage)
+					DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt,doposlimit,dorhoupdate,stage)
 
 			! Update solution
 			rhoqPrime(1:nx,j) = rhoq1dx(1:nx)
 			rhoPrime(1:nx,j) = rhop1dx(1:nx)
 		ENDDO
 	ENDIF
+
+!	SELECT CASE(stage)
+!	CASE(2)
+!		rhoqPrime = 0.75D0*rhoq + 0.25D0*rhoqPrime
+!	CASE(3)		
+!		rhoqPrime = (2D0/3D0)*rhoq + (1D0/3D0)*rhoqPrime
+!	CASE DEFAULT
+!	END SELECT
 
 	ENDDO
 
