@@ -21,12 +21,13 @@ program execute
   transient2 = .false.
   transient3 = .false.
 
+  dotimesteptest = .FALSE.
   write(*,*) '================'
-  write(*,*) 'TEST #1: Square wave '
+  write(*,*) 'TEST #0: Deformation with uniform field '
   write(*,*) '================'
   start_res = 8*(4+1)
   transient = .true.
-!  call test2dweno(15,start_res,start_res,2,3,0.d0,0.d0,20,1D0/(2D0*4D0-1D0)) !1D0/(2D0*4D0-1D0)
+  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
   transient = .false.
 
   transient = .true.
@@ -35,8 +36,8 @@ program execute
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
-  call test2dweno(6,start_res,start_res,2,1,0.d0,0.d0,20, &
-				1D0/(2D0*4D0+1D0))
+!  call test2dweno(6,start_res,start_res,2,1,0.d0,0.d0,20, &
+!				1D0/(2D0*4D0+1D0))
 
 
   transient = .true.
@@ -94,7 +95,7 @@ contains
 
     if(nlev.lt.1) STOP 'nlev should be at least 1 in test2dweno'
 
-    n2 = 2
+    n2 = 1
 	go to 300
     tmp_method(1) = 1  ! PPM no limiting
     tmp_method(2) = 2  ! PPM, positive-definite using FCT
@@ -110,7 +111,7 @@ contains
 
 	300 continue
 	tmp_method(1) = 98
-	tmp_method(2) = 99
+!	tmp_method(2) = 99
 
 
 
@@ -582,7 +583,6 @@ contains
                 uout = u
                 vout = v
              end if
-write(*,*) n,nstep/nout
              call output2d(q(1:nx,1:ny),uout,vout,&
             xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf, &
                   time,1,cdf_out,p)
@@ -693,7 +693,7 @@ write(*,*) n,nstep/nout
              psi(i,j) = pi*tmpr**2
           end do
        end do
-    case(5:6,9,15)
+    case(5:6,9,15,100)
        tfinal = 5.d0
        do j = 0,ny
           do i = 0,nx
@@ -758,7 +758,7 @@ write(*,*) n,nstep/nout
              psi(i,j) =  - xf(i) + yf(j) !yf(j) ! uniform flow: u=1; v=1
           end do
        end do
-    
+
     end select
 
     ! compute u velocity from streamfunction
@@ -931,6 +931,10 @@ write(*,*) n,nstep/nout
           q = 0.5d0*(1.d0 + cos(pi*r))
        end where
 
+	case(100)
+	 cdf_out = 'weno2d_uniform.nc'
+	 q(:,:) = 1D0
+
     end select
 
 
@@ -993,7 +997,7 @@ write(*,*) n,nstep/nout
 				psi2Edge(i,j) = -xf(i) + (DG_yec(j)+dye/2D0)
 			ENDDO
 		ENDDO
-		CASE(5:6,9,15)
+		CASE(5:6,9,15,100)
 		! LeVeque (1996) Deformation
 
 		! Evaluate stream function for horizontal velocities
