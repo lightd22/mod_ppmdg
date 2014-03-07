@@ -3,7 +3,7 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
      dosemilagr,doselect,domonotonic,dopositive,dopcm,doweno, &
      scale,nmethod,lambdamax,epslambda,lambda,monlimit, &
      DG_rhoq,DG_rhop,DG_u,DG_uedge,num_elem,elemdx,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL, &
-     dodghybrid,dorhoupdate,jcbn1d)
+     dodghybrid,dorhoupdate,time,transient,scaling,DGq)
 
   implicit none
 
@@ -38,14 +38,14 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
 
   ! DG Parameters
   INTEGER, INTENT(IN) :: num_elem,norder
-  LOGICAL, INTENT(IN) :: dodghybrid,dorhoupdate
-  REAL(KIND=8), INTENT(IN) :: elemdx
+  LOGICAL, INTENT(IN) :: dodghybrid,dorhoupdate,transient
+  REAL(KIND=8), INTENT(IN) :: elemdx, time, scaling
   REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_nodes, DG_wghts
   REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN) ::DG_C,DG_LUC,DG_L,DG_DL
   INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
-  REAL(KIND=8), DIMENSION(1:N), INTENT(IN) :: DG_u
-  REAL(KIND=8), DIMENSION(1:num_elem), INTENT(IN) :: DG_uedge
-  REAL(KIND=8), DIMENSION(1:N), INTENT(INOUT) :: DG_rhoq, DG_rhop,jcbn1d
+  REAL(KIND=8), DIMENSION(0:2,1:N), INTENT(IN) :: DG_u
+  REAL(KIND=8), DIMENSION(0:2,1:num_elem), INTENT(IN) :: DG_uedge
+  REAL(KIND=8), DIMENSION(1:N), INTENT(INOUT) :: DG_rhoq, DG_rhop,DGq
 
 
   nselpad = 0
@@ -117,7 +117,7 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
 		! The inputs here are the DGrhoq and DGrhop cell average values which will be updated via SSPRK3, then evaluated at the evenly spaced grid
 		! and stored as rhoq and rhop, which are used for computing q on the plotting grid
 		 CALL mDGsweep(DG_rhoq,DG_rhop,DG_u,DG_uedge,elemdx,num_elem,norder,DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,&
-					   IPIV,dt,dodghybrid,dopositive,dorhoupdate,jcbn1d)
+					   IPIV,dt,dodghybrid,dopositive,dorhoupdate,time,transient,scaling,DGq)
      case default
         write(*,*) 'nmethod = ', nmethod
         STOP 'in ppmwrap.f90: no CFL<1 method with this nmethod'
