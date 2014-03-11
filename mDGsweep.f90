@@ -81,11 +81,19 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
 	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem)
 
     ! UPDATE rhoQ and rho ;
+<<<<<<< HEAD
 
 !	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
 	CALL evalExpansion(Q,DG_L,qQuadvals,qEdgevals,N,nelem)
 	CALL evalExpansion(R0,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Maybe should use R0 here? (Ideally shouldn't matter, since fwd steps for rho should yield a constant)
 
+=======
+
+!	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+	CALL evalExpansion(Q,DG_L,qQuadvals,qEdgevals,N,nelem)
+	CALL evalExpansion(R0,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Maybe should use R0 here? (Ideally shouldn't matter, since fwd steps for rho should yield a constant)
+
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
 	CALL NUMFLUX(rhoEdgeVals,qEdgeVals,uEdgeTild,N,nelem,flxrp,flxrq) 
 
 	! Determine flux correction factors
@@ -111,6 +119,7 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
 		END DO
 	ELSE
 		Rout = R0
+<<<<<<< HEAD
 !		SELECT CASE(stage)
 !			CASE(2)
 !				DO j=1,nelem
@@ -123,6 +132,18 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
 !			CASE DEFAULT
 !				Aout = Aout
 !		END SELECT
+=======
+		SELECT CASE(stage)
+			CASE(2)
+				DO j=1,nelem
+					Aout(:,j) = 0.75D0*A0(:,j)+0.25D0*Aout(:,j) 
+				ENDDO
+			CASE(3)
+				DO j=1,nelem
+					Aout(:,j) = (2D0/3D0)*A0(:,j)+(1D0/3D0)*Aout(:,j) 
+				ENDDO
+		END SELECT
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
 	ENDIF
 
 

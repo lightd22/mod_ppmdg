@@ -28,7 +28,11 @@ program execute
   write(*,*) '================'
   start_res = 8*(4+1)
   transient = .TRUE.
+<<<<<<< HEAD
   call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+=======
+!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
  
 
   write(*,*) '================'
@@ -41,7 +45,11 @@ program execute
   write(*,*) 'TEST #1: Constant Horizontal Advection '
   write(*,*) '================'
 
+<<<<<<< HEAD
 !  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+=======
+  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
 
 
   write(*,*) '================'
@@ -49,7 +57,11 @@ program execute
   write(*,*) '================'
   transient = .TRUE.
 !  dotimesteptest = .TRUE.
+<<<<<<< HEAD
 !  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20, 0.05d0)
+=======
+  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20, 0.05d0)
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
 
   write(*,*) '================'
   write(*,*) 'TEST #3: Standard cosbell deformation'
@@ -496,6 +508,15 @@ contains
                   MAX(tmp_umax/MINVAL(dx),tmp_vmax/MINVAL(dy))/maxcfl &
                   /DBLE(noutput))
 			endif
+<<<<<<< HEAD
+=======
+
+			if(dotimesteptest) then
+				tfinal = 4*50
+				nstep = 4*(3150)!*2**(p-1)
+				write(*,*) nstep
+			endif
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
 
              nout = noutput
           end if
@@ -1134,6 +1155,7 @@ contains
 	rhoqPrime = rhoq
 
 	! SSPRK3 Update loop
+<<<<<<< HEAD
 	DO stage=1,3
 
 	IF(transient) THEN 
@@ -1144,6 +1166,18 @@ contains
 		CASE(2) !(t* = tn+1)
 			tstar = time + dt
 		CASE(3) !(t* = tn+1/2)
+=======
+	DO stage = 1,1
+
+	IF(transient) THEN
+		! Update velocities (t* = tn)
+		SELECT CASE(stage)
+		CASE(1)
+			tstar = time
+		CASE(2)
+			tstar = time + dt
+		CASE(3)
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
 			tstar = time + dt/2d0
 		END SELECT
 
@@ -1224,6 +1258,7 @@ contains
 		ENDDO
 	ENDIF
 
+<<<<<<< HEAD
 	SELECT CASE(stage)
 	CASE(2)
 		rhoqPrime = 0.75D0*rhoq + 0.25D0*rhoqPrime
@@ -1231,6 +1266,15 @@ contains
 		rhoqPrime = (1D0/3D0)*rhoq + (2D0/3D0)*rhoqPrime
 	CASE DEFAULT
 	END SELECT
+=======
+!	SELECT CASE(stage)
+!	CASE(2)
+!		rhoqPrime = 0.75D0*rhoq + 0.25D0*rhoqPrime
+!	CASE(3)		
+!		rhoqPrime = (2D0/3D0)*rhoq + (1D0/3D0)*rhoqPrime
+!	CASE DEFAULT
+!	END SELECT
+>>>>>>> parent of bc5b592... Revert 5ef8d90..1e34ab1
 
 	ENDDO
 
