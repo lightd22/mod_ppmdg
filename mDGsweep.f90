@@ -111,16 +111,18 @@ SUBROUTINE mDGsweep(rhoq0,rho0,rhoqIn,rhoIn,u,uedge,dxel,nelem,N,wghts,nodes,DG_
 		END DO
 	ELSE
 		Rout = R0
-		SELECT CASE(stage)
-			CASE(2)
-				DO j=1,nelem
-					Aout(:,j) = 0.75D0*A0(:,j)+0.25D0*Aout(:,j) 
-				ENDDO
-			CASE(3)
-				DO j=1,nelem
-					Aout(:,j) = (2D0/3D0)*A0(:,j)+(1D0/3D0)*Aout(:,j) 
-				ENDDO
-		END SELECT
+!		SELECT CASE(stage)
+!			CASE(2)
+!				DO j=1,nelem
+!					Aout(:,j) = 0.75D0*Ain(:,j)+0.25D0*Aout(:,j) 
+!				ENDDO
+!			CASE(3)
+!				DO j=1,nelem
+!					Aout(:,j) = (1D0/3D0)*Ain(:,j)+(2D0/3D0)*Aout(:,j) 
+!				ENDDO
+!			CASE DEFAULT
+!				Aout = Aout
+!		END SELECT
 	ENDIF
 
 

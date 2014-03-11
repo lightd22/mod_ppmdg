@@ -28,7 +28,7 @@ program execute
   write(*,*) '================'
   start_res = 8*(4+1)
   transient = .TRUE.
-!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
  
 
   write(*,*) '================'
@@ -41,7 +41,7 @@ program execute
   write(*,*) 'TEST #1: Constant Horizontal Advection '
   write(*,*) '================'
 
-  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
 
 
   write(*,*) '================'
@@ -49,7 +49,7 @@ program execute
   write(*,*) '================'
   transient = .TRUE.
 !  dotimesteptest = .TRUE.
-  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20, 0.05d0)
+!  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20, 0.05d0)
 
   write(*,*) '================'
   write(*,*) 'TEST #3: Standard cosbell deformation'
@@ -495,12 +495,6 @@ contains
              nstep = noutput*ceiling(tfinal* &
                   MAX(tmp_umax/MINVAL(dx),tmp_vmax/MINVAL(dy))/maxcfl &
                   /DBLE(noutput))
-			endif
-
-			if(dotimesteptest) then
-				tfinal = 4*50
-				nstep = 4*(3150)!*2**(p-1)
-				write(*,*) nstep
 			endif
 
              nout = noutput
@@ -1140,16 +1134,16 @@ contains
 	rhoqPrime = rhoq
 
 	! SSPRK3 Update loop
-	DO stage = 1,1
+	DO stage=1,3
 
-	IF(transient) THEN
-		! Update velocities (t* = tn)
+	IF(transient) THEN 
+	! Update velocities
 		SELECT CASE(stage)
-		CASE(1)
-			tstar = time
-		CASE(2)
+		CASE(1) !(t* = tn)
+			tstar = time 
+		CASE(2) !(t* = tn+1)
 			tstar = time + dt
-		CASE(3)
+		CASE(3) !(t* = tn+1/2)
 			tstar = time + dt/2d0
 		END SELECT
 
@@ -1230,13 +1224,13 @@ contains
 		ENDDO
 	ENDIF
 
-!	SELECT CASE(stage)
-!	CASE(2)
-!		rhoqPrime = 0.75D0*rhoq + 0.25D0*rhoqPrime
-!	CASE(3)		
-!		rhoqPrime = (2D0/3D0)*rhoq + (1D0/3D0)*rhoqPrime
-!	CASE DEFAULT
-!	END SELECT
+	SELECT CASE(stage)
+	CASE(2)
+		rhoqPrime = 0.75D0*rhoq + 0.25D0*rhoqPrime
+	CASE(3)		
+		rhoqPrime = (1D0/3D0)*rhoq + (2D0/3D0)*rhoqPrime
+	CASE DEFAULT
+	END SELECT
 
 	ENDDO
 
