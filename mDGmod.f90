@@ -162,26 +162,6 @@ MODULE mDGmod
 
 		END FUNCTION phitld
 
-	! ########################
-	! evalLegendre(xi,nxi,N)
-	! ########################
 
-	SUBROUTINE evalLegendre(legVals,xi,nxi,N)
-		IMPLICIT NONE
-		!- Inputs
-		INTEGER, INTENT(IN) :: nxi,N
-		REAL(KIND=DOUBLE), DIMENSION(0:nxi), INTENT(IN) :: xi
-		!- Outputs
-		REAL(KIND=DOUBLE), DIMENSION(0:N,0:nxi), INTENT(OUT) :: legVals
-		!- Local Variables
-		INTEGER :: i
-
-		legVals(0,:) = 1D0
-		legVals(1,:) = xi
-		DO i=2,N
-			legVals(i,:) = (1D0/DBLE(i))*( (2D0*i-1D0)*xi*legVals(i-1,:)-(i-1)*legVals(i-2,:) )
-		ENDDO
-
-	END SUBROUTINE
 
 END MODULE mDGmod
