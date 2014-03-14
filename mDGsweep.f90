@@ -4,7 +4,7 @@
 ! --------------------------------------------------------------------
 
 SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt, & 
-			        dodghybrid,doposlimit,dorhoupdate,jcbn1d)
+			        doposlimit,dorhoupdate,jcbn1d)
 	USE mDGmod
 	IMPLICIT NONE
 	
@@ -19,305 +19,135 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes ! Quadrature weights and node locations
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: DG_C, DG_LUC,DG_L,DG_DL! C matrix, used to xfer between grids, LU decomp of C
 	INTEGER, DIMENSION(0:N), INTENT(IN):: IPIV ! Pivot array for RHS when using DG_LUC
-	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: u ! Velocities at quadrature locations within each element
-	REAL(KIND=DOUBLE), DIMENSION(1:nelem), INTENT(IN) :: uedge ! Edge velocities at RHS of each element
+	REAL(KIND=DOUBLE), DIMENSION(1:3,1:(nelem*(N+1))), INTENT(IN) :: u ! Velocities at quadrature locations within each element
+	REAL(KIND=DOUBLE), DIMENSION(1:3,1:nelem), INTENT(IN) :: uedge ! Edge velocities at RHS of each element
 	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: jcbn1d
-	LOGICAL, INTENT(IN) :: dodghybrid,doposlimit,dorhoupdate
+	LOGICAL, INTENT(IN) :: doposlimit,dorhoupdate
 	! --- Outputs
 	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(INOUT) :: rhoq,rhop ! Soln as sub-cell averages within each element at FV cell centers
 
 	! --- Local Variables
 	INTEGER :: i,j,k
-	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqBAR,rpBAR,foorq ! Reshaped cell averages
-	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1) :: A,A1,A2,R,R1,R2 ! Reshaped DG coefficent matricies
-	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: utild ! Reshaped velocities
-	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: uedgetild ! Periodically extended edge velocities
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqBAR,rhoBAR,qBAR ! Reshaped cell averages
+	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1) :: An,A,Rn,Q ! Reshaped DG coefficent matricies
+	REAL(KIND=DOUBLE), DIMENSION(1:3,0:N,1:nelem) :: utild ! Reshaped velocities
+	REAL(KIND=DOUBLE), DIMENSION(1:3,1:nelem) :: uedgetild ! Periodically extended edge velocities
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: flxrq, flxrp! Array of fluxes F(j,j+1) (flx(0) is left flux at left edge of domain)
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: fcfrq,fcfrp ! Flux correction factors for positivity limiting
 
-	! -- DGESV parameters
-	REAL(KIND=DOUBLE), DIMENSION(0:N) :: FOO_y
-	REAL(KIND=DOUBLE), DIMENSION(1:nelem) :: hold
-	INTEGER :: ierr
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqQuadVals,rhoQuadVals,qQuadVals
+	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1) :: rqEdgeVals,rhoEdgeVals,qEdgeVals
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: uTmpQuad
+	REAL(KIND=DOUBLE), DIMENSION(1:nelem) :: uTmpEdge
 	
-	REAL(KIND=4) :: ta,tb
-	REAL(KIND=4), DIMENSION(2) :: time
-	
-	! ########################################
-    ! A(k,j) gives a_k(t) in the jth element for rhoq 
-	! R(k,j) gives a_k(t) in the jth element for rho
-    ! ########################################
+	REAL(KIND=DOUBLE), DIMENSION(0:N) :: qOnes = 1D0
 
-	! ########################################
-    ! UPDATE RHOQ FIRST
-	! ########################################
-	
+	! #####################################################
+    ! A(k,j) gives kth coeff in the jth element for rhoq 
+	! R(k,j) gives kth coeff in the jth element for rho
+    ! #####################################################
+
     ! Reform incoming values to be more convienent
     DO j=1,nelem
         rqBAR(:,j) = rhoq(1+(N+1)*(j-1) : (N+1)*j)
-        utild(:,j) = u(1+(N+1)*(j-1) : (N+1)*j)
+		rhoBAR(:,j) = rhop(1+(N+1)*(j-1) : (N+1)*j)
+
+        utild(1:3,:,j) = u(1:3,1+(N+1)*(j-1) : (N+1)*j)
     END DO
-	uedgetild(1:nelem) = uedge(1:nelem)
+	uedgetild(1:3,1:nelem) = uedge(1:3,1:nelem)
 
-    ! For hybrid, values incoming assumed to be cell averages, project onto basis, giving coefficents a_k(t) 
-	! which corresp. to series that, when averaged over the evenly spaced subcells in each element, result in the incoming values.
+	CALL projectAverages(An,DG_LUC,IPIV,rqBAR,N,nelem) ! Project inital rhoq averages
+	CALL projectAverages(Rn,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project inital rho averages
 
-	! Construct RHS using IPIV array
-		DO i=0,N
-			hold = rqBAR(i,1:nelem)
-			rqBAR(i,1:nelem) = rqBAR(IPIV(i)-1,1:nelem)
-			rqBAR(IPIV(i)-1,1:nelem) = hold
-		ENDDO
+	! Initialize A and R for first stage
+	A = An 
+	R = Rn 
+
+	DO stage = 1,3
+		uTmpQuad(0:N,1:nelem) = utild(stage,0:N,1:nelem)
+		uTmpEdge(1:nelem) = uedgetild(stage,1:nelem)
 
 		DO j=1,nelem
+			qBAR(:,j) = rqBAR(:,j)/rhoBAR(:,j)
+		ENDDO
 
-			FOO_y = 0D0
-			! Solve Ly=RHS for y
-			FOO_y(0) = rqBAR(0,j)
+	    ! For DG hybrid, values incoming are assumed to be cell averages. These are projected onto basis, giving coefficents a_k(t) 
+		! which corresp. to series that when averaged over the evenly spaced subcells in each element result in the incoming values.
+!		CALL projectAverages(A,DG_LUC,IPIV,rqBAR,N,nelem) ! Project rhoq
+!		CALL projectAverages(R,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project rho
+		CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project q = rhoq/rho
 
-			DO k=1,N
-				FOO_y(k) = rqBAR(k,j) - SUM(DG_LUC(k,0:k-1)*FOO_y(0:k-1))
-			ENDDO
+	!	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+		CALL evalExpansion(Q,DG_L,qQuadvals,qEdgevals,N,nelem) ! Evaluate q at quad nodes & edges
+		CALL evalExpansion(R,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Evaluate rho at quad nodes & edges
 
-			! Solve Ux=y for x
-			A(N,j) = (1D0/DG_LUC(N,N))*FOO_y(N)
-			DO k=N-1,0,-1
-				A(k,j) = (1D0/DG_LUC(k,k))*(FOO_y(k) - SUM(DG_LUC(k,k+1:N)*A(k+1:N,j)))
+		CALL NUMFLUX(rhoEdgeVals,qEdgeVals,uTmpEdge,N,nelem,flxrp,flxrq) ! Evaluate fluxes
+	
+		! Determine flux correction factors
+		fcfrp = 1d0 ! By default, do no corrections
+		fcfrq = 1d0 ! By default, do no corrections
+		IF(doposlimit) THEN
+			CALL FLUXCOR(R,Rn,flxrp,DG_C,dxel,dt,nelem,N,stage,fcfrp) ! Maybe don't need this? Shouldn't need to limit rho
+			CALL FLUXCOR(A,An,flxrq,DG_C,dxel,dt,nelem,N,stage,fcfrq)
+		END IF
+
+		! Compute forward step
+		DO j = 1,nelem
+			DO k=0,N
+				A(k,j) = A(k,j) + (dt/dxel)*B(qQuadVals(:,j),rhoQuadVals,flxrq,uTild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
+				R(k,j) = R(k,j) + (dt/dxel)*B(qOnes(:),rhoQuadVals,flxrp,uTild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:))
 			ENDDO
 		ENDDO
 
-!	IF(doposlimit) THEN
-!		DO j=1,nelem
-!			IF(dabs(A(0,j)) .lt. epsilon(1d0)) THEN
-!				A(0,j) = 0d0
-!			ENDIF
-!		ENDDO		
-!	ENDIF
-	! -- Enforce periodicity
-	A(:,0) = A(:,nelem)
-	A(:,nelem+1) = A(:,1)
-	uedgetild(0) = uedgetild(nelem)
+		SELECT CASE(stage)
+			CASE(2)
+				A = (0.75D0)*An + (0.25D0)*A
+				R = (0.75D0)*Rn + (0.25D0)*R
+			CASE(3)
+				A = (1D0/3D0)*An + (2D0/3D0)*A
+				R = (1D0/3D0)*Rn + (2D0/3D0)*R
+			CASE DEFAULT
+		END SELECT
 
-    ! #######################
-    ! Time step using SSPRK3
-    ! #######################
+		! END SPPRK3 TIMESTEP ; BEGIN CELL AVERAGING 
 
-	CALL NUMFLUX(A,uedgetild,N,nelem,flxrq)
-	
-	! Determine flux correction factors
-	fcfrq = 1d0 ! By default, do no corrections
-	IF(doposlimit) THEN
-		CALL FLUXCOR(A,A,flxrq,DG_C,dxel,dt,nelem,N,1,fcfrq)
-	END IF
-
-	! -- First step
-	DO j=1,nelem	
-		DO k=0,N
-			A1(k,j) = A(k,j) + (dt/dxel)*B(A,flxrq,utild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k))
-		END DO
-	END DO
-
-	! -- Enforce periodicity
-    A1(:,0) = A1(:,nelem)
-	A1(:,nelem+1) = A1(:,1)
-
-	! Compute fluxes
-	CALL NUMFLUX(A1,uedgetild,N,nelem,flxrq)
-
-	! Determine flux correction factors
-	IF(doposlimit) THEN
-		fcfrq = 1D0
-		CALL FLUXCOR(A1,A,flxrq,DG_C,dxel,dt,nelem,N,2,fcfrq)
-	END IF
-
-	! -- Second step
-	DO j = 1, nelem
-		DO k = 0, N
-			A2(k,j) = (3D0/4D0)*A(k,j) + (1D0/4D0)*(A1(k,j) + (dt/dxel)*B(A1,flxrq,utild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))
-		END DO
-	END DO
-
-	! -- Enforce periodicity
-	A2(:,0) = A2(:,nelem)
-	A2(:,nelem+1) = A2(:,1)
-
-	! Compute fluxes
-	CALL NUMFLUX(A2,uedgetild,N,nelem,flxrq)
-
-	! Determine flux correction factors
-	IF(doposlimit) THEN
-		fcfrq = 1D0
-		fcfrp = 1D0
-		CALL FLUXCOR(A2,A,flxrq,DG_C,dxel,dt,nelem,N,3,fcfrq)
-	END IF
-
-	! -- Third step
-	DO j = 1,nelem
-		DO k = 0, N
-			A(k,j) = A(k,j)/3D0 + 2D0*(A2(k,j) + (dt/dxel)*B(A2,flxrq,utild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(:,k)))/3D0
-		END DO
-	END DO
-
-	! #########
-	! END SPPRK3 TIMESTEP ; BEGIN CELL AVERAGING
-	! #########
-
-    ! After time stepping, use DG_C to average the series expansion to cell-averaged values
-    ! on evenly spaced grid for finite volumes
+	    ! After time stepping, use DG_C to average the series expansion to cell-averaged values
+    		! on evenly spaced grid for finite volumes
 	    DO j = 1,nelem
 			rqBAR(:,j) = MATMUL(DG_C,A(:,j))
-	    END DO
-
-	! #######
-	! END CELL AVERAGING
-	! #######
-
-	! Mass filling to prevent negative subcell averages within each element
-	IF(doposlimit) THEN
-		CALL MFILL(rqBAR,N,nelem)
-
-		if(minval(rqBAR(:,:)) .lt. 0D0) then
-			write(*,*) 'MINIMUM IS:',minval(rqBAR(:,:))
-		end if
-	END IF
-
-    ! Reform original rp and rq vectors to send back
-	! -- Note: There are 2 ghost cells that we don't update
-    DO j=1,nelem
-        rhoq(1+(N+1)*(j-1) : (N+1)*j) = rqBAR(:,j)
-    END DO
-
-	! #########################################
-	! UPDATE RHO (IF NECESSARY)
-	! #########################################
-
-	IF(dorhoupdate) THEN
-	! Do density update for mid-step split
-
-	! Reshape array to be more convienient
-	DO j=1,nelem
-		rpBAR(:,j) = rhop(1+(N+1)*(j-1) : (N+1)*j)
-	ENDDO
-
-	! Construct RHS using IPIV array
-		DO i=0,N
-			hold = rpBAR(i,:)
-			rpBAR(i,:) = rpBAR(IPIV(i)-1,:)
-			rpBAR(IPIV(i)-1,:) = hold
-		ENDDO
-
-		DO j=1,nelem
-			FOO_y = 0D0
-			! Solve Ly=RHS for y
-			FOO_y(0) = rpBAR(0,j)
-			DO k=1,N
-				FOO_y(k) = rpBAR(k,j) - SUM(DG_LUC(k,0:k-1)*FOO_y(0:k-1))
-			ENDDO
-			! Solve Ux=y for x
-			R(N,j) = (1D0/DG_LUC(N,N))*FOO_y(N)
-			DO k=N-1,0,-1
-				R(k,j) = (1D0/DG_LUC(k,k))*(FOO_y(k) - SUM(DG_LUC(k,k+1:)*R(k+1:,j)))
-			ENDDO
-		ENDDO
-
-	! Enforce periodicity
-	R(:,0) = R(:,nelem)
-	R(:,nelem+1) = R(:,1)
-	uedgetild(0) = uedgetild(nelem)
-
-    ! #######################
-    ! Time step using SSPRK3
-    ! #######################
-
-	CALL NUMFLUX(R,uedgetild,N,nelem,flxrp)
-	
-	! Determine flux correction factors
-	fcfrp = 1d0 ! By default, do no corrections
-	IF(doposlimit) THEN
-		CALL FLUXCOR(R,R,flxrp,DG_C,dxel,dt,nelem,N,1,fcfrp)
-	END IF
-
-	! -- First step
-	DO j=1,nelem	
-		DO k=0,N
-			R1(k,j) = R(k,j) + (dt/dxel)*B(R,flxrp,utild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k))
-		END DO
-	END DO
-
-	! -- Enforce periodicity
-	R1(:,0) = R1(:,nelem)
-	R1(:,nelem+1) = R1(:,1)
-
-	! Compute fluxes
-	CALL NUMFLUX(R1,uedgetild,N,nelem,flxrp)
-
-	! Determine flux correction factors
-	IF(doposlimit) THEN
-		fcfrp = 1D0
-		CALL FLUXCOR(R1,R,flxrp,DG_C,dxel,dt,nelem,N,2,fcfrp)
-	END IF
-
-	! -- Second step
-	DO j = 1, nelem
-		DO k = 0, N
-			R2(k,j) = (3D0/4D0)*R(k,j) + (1D0/4D0)*(R1(k,j) + (dt/dxel)*B(R1,flxrp,utild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))
-		END DO
-	END DO
-
-	! -- Enforce periodicity
-	R2(:,0) = R2(:,nelem)
-	R2(:,nelem+1) = R2(:,1)
-
-	! Compute fluxes
-	CALL NUMFLUX(R2,uedgetild,N,nelem,flxrp)
-
-
-	! Determine flux correction factors
-	IF(doposlimit) THEN
-		fcfrp = 1D0
-		CALL FLUXCOR(R2,R,flxrp,DG_C,dxel,dt,nelem,N,3,fcfrp)
-	END IF
-
-	! -- Third step
-	DO j = 1,nelem
-		DO k = 0, N
-			R(k,j) = R(k,j)/3D0 + 2D0*(R2(k,j) + (dt/dxel)*B(R2,flxrp,utild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(:,k)))/3D0
-		END DO
-	END DO
-
-	! #########
-	! END SPPRK3 TIMESTEP ; 	BEGIN CELL AVERAGING
-	! #########
-
-    ! After time stepping, use DG_C to average the series expansion to cell-averaged values
-    ! on evenly spaced grid for finite volumes
-	    DO j = 1,nelem
 			rpBAR(:,j) = MATMUL(DG_C,R(:,j))
 	    END DO
+		
+	ENDDO
 
-	! #######
-	! END CELL AVERAGING
-	! #######
-
-	! Mass filling to prevent negative subcell averages within each element
-	IF(doposlimit) THEN
-		CALL MFILL(rpBAR,N,nelem)
-	END IF
-
-    ! Reform original rp and rq vectors to send back
-	! -- Note: There are 2 ghost cells that we don't update
-    DO j=1,nelem
-		rhop(1+(N+1)*(j-1) : (N+1)*j) = rpBAR(:,j)
-    END DO
-
-	ELSE	
-	! Density at physical time levels is already known ; just set values
-		rhop(:) = jcbn1d(:)
+	IF(.NOT. dorhoupdate) THEN
+	! Set rho values at time tn+1 to be same as tn
+		DO j=1,nelem
+			rhoBAR(:,j) = jcbn1d(1+(N+1)*(j-1) : (N+1)*j)
+		ENDDO
 	ENDIF
+
+	IF(doposlimit) THEN
+!		DO j=1,nelem
+!			qBAR(:,j) = rqBAR(:,j)/rhoBAR(:,j)
+!		ENDDO
+		qBAR(:,:) = rqBAR(:,:)/rhoBAR(:,:)
+		CALL MFILL(qBAR,N,nelem)
+!		DO j=1,nelem
+!			rqBAR(:,j) = qBAR(:,j)*rhoBAR(:,j)
+!		ENDDO
+		rqBAR(:,:) = qBAR(:,:)*rhoBAR(:,:) ! Done to ensure rhoq = rho*q after limiting
+	ENDIF
+
+	! Reform original shaped arrays
+    DO j=1,nelem
+        rhoq(1+(N+1)*(j-1) : (N+1)*j) = rqBAR(:,j)
+		rhop(1+(N+1)*(j-1) : (N+1)*j) = rhoBAR(:,j)
+    END DO
 
 END SUBROUTINE mDGsweep
 
-REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,wghts,nodes,k,j,nelem,N,fluxcf,Leg,dLeg) 
+REAL(KIND=KIND(1D0)) FUNCTION B(qQuadVals,rhopQuadVals,flx,utild,wghts,nodes,k,j,nelem,N,fluxcf,Leg,dLeg) 
 	IMPLICIT NONE
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
 
@@ -325,7 +155,7 @@ REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,wghts,nodes,k,j,nelem,N,fluxcf,Leg
 	INTEGER, INTENT(IN) :: nelem, N
 	INTEGER, INTENT(IN) :: k,j ! Mode number, element number
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes,dLeg
-	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1), INTENT(IN) :: Ain
+	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: qQuadVals,rhopQuadVals
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(IN) :: utild
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: Leg
 
@@ -339,11 +169,13 @@ REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,wghts,nodes,k,j,nelem,N,fluxcf,Leg
 	REAL(KIND=DOUBLE), DIMENSION(0:N) :: HOLDER
 	INTEGER :: i
 
-	DO i=0,N
-		HOLDER(i) = SUM(Ain(:,j)*Leg(:,i))
-	END DO
+!	DO i=0,N
+!		HOLDER(i) = SUM(Ain(:,j)*Leg(:,i))
+!	END DO
 
-	B = SUM(wghts(:)*utild(:,j)*dLeg(:)*HOLDER)
+!	B = SUM(wghts(:)*utild(:,j)*dLeg(:)*HOLDER)
+
+	B = SUM(wghts(:)*utild(:,j)*dLeg(:)*qQuadVals(:)*rhopQuadVals(:))
 
 	IF(k .eq. 0) THEN
 		B = B - fluxcf(j)*flx(j) + fluxcf(j-1)*flx(j-1)
@@ -355,36 +187,28 @@ REAL(KIND=KIND(1D0)) FUNCTION B(Ain,flx,utild,wghts,nodes,k,j,nelem,N,fluxcf,Leg
 
 END FUNCTION B
 
-SUBROUTINE NUMFLUX(A,u,N,nelem,flx)
+SUBROUTINE NUMFLUX(rhoEdgeVals,qEdgeVals,uEdge,N,nelem,flxrp,flxrq) 
 !	USE mDGmod
 	IMPLICIT NONE
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
 	! -- Inputs
 	INTEGER, INTENT(IN) :: N,nelem
-	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1), INTENT(IN) :: A
-	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: u
+	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1), INTENT(IN) :: rhoEdgeVals,qEdgeVals
+	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: uEdge
 
 	! -- Outputs	
-	REAL(KIND=DOUBLE),DIMENSION(0:nelem), INTENT(OUT) :: flx
+	REAL(KIND=DOUBLE),DIMENSION(0:nelem), INTENT(OUT) :: flxrp,flxrq
 
 	! -- Local variables
-	REAL(KIND=DOUBLE), DIMENSION(0:N) :: foo
-	
-	INTEGER :: k,j,which_el
-	REAL(KIND=8), DIMENSION(0:N) :: arr1,arr2,which_sign
-	
-	arr1 = 1D0 ! P_l(1) = 1 for all orders l
-	arr2 = (/ ((-1D0)**j , j=0,N) /) ! P_l(-1) = (-1)**l
+	INTEGER :: j
 
 	DO j=0,nelem
+		flxrp(j) = 0.5D0*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+		flxrq(j) = 0.5D0*rhoEdgeVals(1,j)*qEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+ & 
+				   0.5D0*rhoEdgeVals(0,j+1)*qEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
 
-	which_sign = arr1-(arr1-arr2)*(1D0-INT(SIGN(1D0,u(j))))/2D0
-	which_el = j + (1D0-INT(SIGN(1D0,u(j))))/2D0
-
-	flx(j) = u(j)*SUM(which_sign*A(:,which_el))
+!		flxrq(j) = 0.5D0*qEdgeVals(1,j)*(rhouEdge(j)+DABS(rhouEdge(j)))+0.5D0*qEdgeVals(0,j+1)*(rhouEdge(j)-DABS(rhouEdge(j)))
 	ENDDO
-
-END SUBROUTINE NUMFLUX
 
 SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 	! Computes flux reductions factors to prevent total mass within each element from going negative
@@ -490,3 +314,71 @@ SUBROUTINE MFILL(rhoq,N,nelem)
 	ENDDO
 
 END SUBROUTINE MFILL
+
+SUBROUTINE evalExpansion(A,leg_quad,quadVals,edgeVals,N,nelem)
+	IMPLICIT NONE
+	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
+	! -- Inputs
+	INTEGER, INTENT(IN) :: nelem,N
+	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: leg_quad
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(INOUT) :: A
+
+	! -- Outputs
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(OUT) :: quadVals
+	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1), INTENT(OUT) :: edgeVals
+	! -- Local variables
+	INTEGER :: i,k,j
+
+	DO j=1,nelem
+		DO i=0,N
+			quadVals(i,j) = SUM(A(:,j)*leg_quad(:,i))
+		ENDDO
+		edgeVals(0,j) = SUM(A(:,j)*(/ ((-1D0)**i , i=0,N) /)) ! Expansion value at left edge of element
+		edgeVals(1,j) = SUM(A(:,j)) ! Expansion value at right edge of element
+	ENDDO
+
+	! Extend edgeVals periodically
+	edgeVals(:,0) = edgeVals(:,nelem)
+	edgeVals(:,nelem+1) = edgeVals(:,1)
+
+END SUBROUTINE evalExpansion
+
+SUBROUTINE projectAverages(A,DG_LUC,IPIV,avgs,N,nelem)
+	IMPLICIT NONE
+	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
+	! -- Inputs
+	INTEGER, INTENT(IN) :: nelem,N
+	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: DG_LUC
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(IN) :: avgs
+	INTEGER, DIMENSION(0:N), INTENT(IN) :: IPIV
+	! -- Outputs
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: A
+	! -- Local variables
+	INTEGER :: i,j,k
+	REAL(KIND=DOUBLE), DIMENSION(1:nelem) :: hold
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: fooBAR
+	REAL(KIND=DOUBLE), DIMENSION(0:N) :: FOO_y
+
+	fooBAR = avgs
+
+	DO i=0,N ! Reorder RHS according to IPIV
+			hold = fooBAR(i,1:nelem)
+			fooBAR(i,:) = fooBAR(IPIV(i)-1,:)
+			fooBAR(IPIV(i)-1,1:nelem) = hold
+	ENDDO
+
+	DO j=1,nelem
+		FOO_y = 0D0
+		! Solve Ly=RHS for y
+		FOO_y(0) = fooBAR(0,j)
+		DO k=1,N
+			FOO_y(k) = fooBAR(k,j) - SUM(DG_LUC(k,0:k-1)*FOO_y(0:k-1))
+		ENDDO
+		! Solve Ux=y for x
+		A(N,j) = (1D0/DG_LUC(N,N))*FOO_y(N)
+		DO k=N-1,0,-1
+			A(k,j) = (1D0/DG_LUC(k,k))*(FOO_y(k) - SUM(DG_LUC(k,k+1:N)*A(k+1:N,j)))
+		ENDDO
+	ENDDO
+
+END SUBROUTINE projectAverages
