@@ -27,9 +27,9 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(INOUT) :: rhoq,rhop ! Soln as sub-cell averages within each element at FV cell centers
 
 	! --- Local Variables
-	INTEGER :: i,j,k
+	INTEGER :: i,j,k,stage
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqBAR,rhoBAR,qBAR ! Reshaped cell averages
-	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1) :: An,A,Rn,Q ! Reshaped DG coefficent matricies
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: An,A,Rn,R,Q ! Reshaped DG coefficent matricies
 	REAL(KIND=DOUBLE), DIMENSION(1:3,0:N,1:nelem) :: utild ! Reshaped velocities
 	REAL(KIND=DOUBLE), DIMENSION(1:3,1:nelem) :: uedgetild ! Periodically extended edge velocities
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: flxrq, flxrp! Array of fluxes F(j,j+1) (flx(0) is left flux at left edge of domain)
@@ -40,7 +40,9 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: uTmpQuad
 	REAL(KIND=DOUBLE), DIMENSION(1:nelem) :: uTmpEdge
 	
-	REAL(KIND=DOUBLE), DIMENSION(0:N) :: qOnes = 1D0
+	REAL(KIND=DOUBLE), DIMENSION(0:N) :: qOnes
+
+	qOnes = 1D0
 
 	! #####################################################
     ! A(k,j) gives kth coeff in the jth element for rhoq 
@@ -62,43 +64,69 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! Initialize A and R for first stage
 	A = An 
 	R = Rn 
+	
+	uTmpQuad(0:N,1:nelem) = 1D0 !utild(1,0:N,1:nelem)
+	uTmpEdge(1:nelem) = 1D0 !uedgetild(1,1:nelem)
 
-	DO stage = 1,3
+	CALL evalExpansion(R,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Evaluate rho at quad nodes & edges
+	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+
+	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,N,nelem,flxrp,flxrq)
+
+	write(*,*) DG_DL(0,:)
+
+	DO j = 1,nelem
+		DO k=0,N
+			R(k,j) = R(k,j) + (dt/dxel)*B(qOnes(:),rhoQuadVals(:,j),flxrp,uTmpQuad,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:))
+			A(k,j) = A(k,j) + (dt/dxel)*B(rqQuadVals(:,j),qOnes(:),flxrq,uTmpQuad,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
+		ENDDO
+	ENDDO
+	
+	DO j = 1,nelem
+		rqBAR(:,j) = MATMUL(DG_C,A(:,j))
+		rhoBAR(:,j) = MATMUL(DG_C,R(:,j))
+	END DO
+
+
+	go to 999
+	DO stage = 1,1
 		uTmpQuad(0:N,1:nelem) = utild(stage,0:N,1:nelem)
 		uTmpEdge(1:nelem) = uedgetild(stage,1:nelem)
 
-		DO j=1,nelem
-			qBAR(:,j) = rqBAR(:,j)/rhoBAR(:,j)
-		ENDDO
+
+!		DO j=1,nelem
+!			qBAR(:,j) = rqBAR(:,j)/rhoBAR(:,j)
+!		ENDDO
 
 	    ! For DG hybrid, values incoming are assumed to be cell averages. These are projected onto basis, giving coefficents a_k(t) 
 		! which corresp. to series that when averaged over the evenly spaced subcells in each element result in the incoming values.
 !		CALL projectAverages(A,DG_LUC,IPIV,rqBAR,N,nelem) ! Project rhoq
 !		CALL projectAverages(R,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project rho
-		CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project q = rhoq/rho
+!		CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project q = rhoq/rho
 
-	!	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
-		CALL evalExpansion(Q,DG_L,qQuadvals,qEdgevals,N,nelem) ! Evaluate q at quad nodes & edges
+		CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+!		CALL evalExpansion(Q,DG_L,qQuadvals,qEdgevals,N,nelem) ! Evaluate q at quad nodes & edges
 		CALL evalExpansion(R,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Evaluate rho at quad nodes & edges
 
-		CALL NUMFLUX(rhoEdgeVals,qEdgeVals,uTmpEdge,N,nelem,flxrp,flxrq) ! Evaluate fluxes
+!		CALL NUMFLUX(rhoEdgeVals,qEdgeVals,uTmpEdge,N,nelem,flxrp,flxrq) ! Evaluate fluxes
+		CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,N,nelem,flxrp,flxrq) ! Evaluate fluxes
 	
 		! Determine flux correction factors
 		fcfrp = 1d0 ! By default, do no corrections
 		fcfrq = 1d0 ! By default, do no corrections
-		IF(doposlimit) THEN
-			CALL FLUXCOR(R,Rn,flxrp,DG_C,dxel,dt,nelem,N,stage,fcfrp) ! Maybe don't need this? Shouldn't need to limit rho
-			CALL FLUXCOR(A,An,flxrq,DG_C,dxel,dt,nelem,N,stage,fcfrq)
-		END IF
+!		IF(doposlimit) THEN
+!			CALL FLUXCOR(R,Rn,flxrp,DG_C,dxel,dt,nelem,N,stage,fcfrp) ! Maybe don't need this? Shouldn't need to limit rho
+!			CALL FLUXCOR(A,An,flxrq,DG_C,dxel,dt,nelem,N,stage,fcfrq)
+!		END IF
 
 		! Compute forward step
 		DO j = 1,nelem
 			DO k=0,N
-				A(k,j) = A(k,j) + (dt/dxel)*B(qQuadVals(:,j),rhoQuadVals,flxrq,uTild,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
-				R(k,j) = R(k,j) + (dt/dxel)*B(qOnes(:),rhoQuadVals,flxrp,uTild,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:))
+!				A(k,j) = A(k,j) + (dt/dxel)*B(qQuadVals(:,j),rhoQuadVals(:,j),flxrq,uTmpQuad,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
+				R(k,j) = R(k,j) + (dt/dxel)*B(qOnes(:),rhoQuadVals(:,j),flxrp,uTmpQuad,wghts,nodes,k,j,nelem,N,fcfrp,DG_L,DG_DL(k,:))
+				A(k,j) = A(k,j) + (dt/dxel)*B(rqQuadVals(:,j),qOnes(:),flxrq,uTmpQuad,wghts,nodes,k,j,nelem,N,fcfrq,DG_L,DG_DL(k,:))
 			ENDDO
 		ENDDO
-
 		SELECT CASE(stage)
 			CASE(2)
 				A = (0.75D0)*An + (0.25D0)*A
@@ -115,10 +143,12 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
     		! on evenly spaced grid for finite volumes
 	    DO j = 1,nelem
 			rqBAR(:,j) = MATMUL(DG_C,A(:,j))
-			rpBAR(:,j) = MATMUL(DG_C,R(:,j))
+			rhoBAR(:,j) = MATMUL(DG_C,R(:,j))
 	    END DO
 		
 	ENDDO
+
+	999 continue
 
 	IF(.NOT. dorhoupdate) THEN
 	! Set rho values at time tn+1 to be same as tn
@@ -187,13 +217,35 @@ REAL(KIND=KIND(1D0)) FUNCTION B(qQuadVals,rhopQuadVals,flx,utild,wghts,nodes,k,j
 
 END FUNCTION B
 
-SUBROUTINE NUMFLUX(rhoEdgeVals,qEdgeVals,uEdge,N,nelem,flxrp,flxrq) 
-!	USE mDGmod
+!SUBROUTINE NUMFLUX(rhoEdgeVals,qEdgeVals,uEdge,N,nelem,flxrp,flxrq) 
+!	IMPLICIT NONE
+!	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
+!	! -- Inputs
+!	INTEGER, INTENT(IN) :: N,nelem
+!	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1), INTENT(IN) :: rhoEdgeVals,qEdgeVals
+!	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: uEdge
+!
+!	! -- Outputs	
+!	REAL(KIND=DOUBLE),DIMENSION(0:nelem), INTENT(OUT) :: flxrp,flxrq
+!
+!	! -- Local variables
+!	INTEGER :: j
+!
+!	DO j=0,nelem
+!		flxrp(j) = 0.5D0*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+!		flxrq(j) = 0.5D0*rhoEdgeVals(1,j)*qEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+ & 
+!				   0.5D0*rhoEdgeVals(0,j+1)*qEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+!
+!		flxrq(j) = 0.5D0*qEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*qEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+!	ENDDO
+!END SUBROUTINE NUMFLUX
+
+SUBROUTINE NUMFLUX(rhoEdgeVals,rqEdgeVals,uEdge,N,nelem,flxrp,flxrq) 
 	IMPLICIT NONE
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
 	! -- Inputs
 	INTEGER, INTENT(IN) :: N,nelem
-	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1), INTENT(IN) :: rhoEdgeVals,qEdgeVals
+	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1), INTENT(IN) :: rhoEdgeVals,rqEdgeVals
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: uEdge
 
 	! -- Outputs	
@@ -203,12 +255,13 @@ SUBROUTINE NUMFLUX(rhoEdgeVals,qEdgeVals,uEdge,N,nelem,flxrp,flxrq)
 	INTEGER :: j
 
 	DO j=0,nelem
-		flxrp(j) = 0.5D0*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
-		flxrq(j) = 0.5D0*rhoEdgeVals(1,j)*qEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+ & 
-				   0.5D0*rhoEdgeVals(0,j+1)*qEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+!		flxrp(j) = 0.5D0*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+!		flxrq(j) = 0.5D0*rqEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rqEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
 
-!		flxrq(j) = 0.5D0*qEdgeVals(1,j)*(rhouEdge(j)+DABS(rhouEdge(j)))+0.5D0*qEdgeVals(0,j+1)*(rhouEdge(j)-DABS(rhouEdge(j)))
+		flxrp(j) = rhoEdgeVals(1,j)*uEdge(j)
+		flxrq(j) = rqEdgeVals(1,j)*uEdge(j)
 	ENDDO
+END SUBROUTINE NUMFLUX
 
 SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 	! Computes flux reductions factors to prevent total mass within each element from going negative

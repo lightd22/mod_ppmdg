@@ -116,7 +116,7 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
      case(99) ! Modal DG
 		! The inputs here are the DGrhoq and DGrhop cell average values which will be updated via SSPRK3, then evaluated at the evenly spaced grid
 		! and stored as rhoq and rhop, which are used for computing q on the plotting grid
-		 CALL mDGsweep(DG_rhoq,DG_rhop,DG_u,DG_uedge,elemdx,num_elem,norder,DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,&
+		 CALL mDGsweep(DGrhoq,DGrhop,DGu,DGuedge,elemdx,num_elem,norder,DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,&
 					   IPIV,dt,dopositive,dorhoupdate,jcbn1d)
      case default
         write(*,*) 'nmethod = ', nmethod

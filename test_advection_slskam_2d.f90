@@ -22,21 +22,26 @@ program execute
   transient3 = .false.
 
   write(*,*) '================'
-  write(*,*) 'TEST #1: Square wave '
+  write(*,*) 'TEST #0: Uniform field in deformation flow '
   write(*,*) '================'
   start_res = 8*(4+1)
   transient = .true.
-!  call test2dweno(15,start_res,start_res,2,3,0.d0,0.d0,20,1D0/(2D0*4D0-1D0)) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
+
+
+  write(*,*) '================'
+  write(*,*) 'TEST #1: Constant Diagonal Advection '
+  write(*,*) '================'
   transient = .false.
+!  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,1D0/(2D0*4D0-1D0)) !1D0/(2D0*4D0-1D0)
+  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
-  transient = .true.
-
-  dotimesteptest = .TRUE.
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
-  call test2dweno(6,start_res,start_res,2,1,0.d0,0.d0,20, &
-				1D0/(2D0*4D0+1D0))
+  transient = .true.
+!  call test2dweno(6,start_res,start_res,2,1,0.d0,0.d0,20, &
+!				1D0/(2D0*4D0+1D0))
 
 
   transient = .true.
@@ -87,14 +92,14 @@ contains
 	REAL(KIND=8) :: dxel,dyel,dxm
     REAL(KIND=8), allocatable, dimension(:) :: DG_xec,DG_yec, DG_nodes,DG_wghts,DG_x,DG_y,DG_FOO
 	INTEGER, ALLOCATABLE, DIMENSION(:) :: IPIV
-    REAL(KIND=8), allocatable, dimension(:,:) :: DG_u,DG_v, DG_uedge,DG_vedge,DG_C,DG_LUC,DG_L,DG_DL
+    REAL(KIND=8), allocatable, dimension(:,:) :: DGu0,DGv0, DGuedge0,DGvedge0,DG_C,DG_LUC,DG_L,DG_DL
 
 
     pi = DACOS(-1D0)
 
     if(nlev.lt.1) STOP 'nlev should be at least 1 in test2dweno'
 
-    n2 = 2
+    n2 = 1
 	go to 300
     tmp_method(1) = 1  ! PPM no limiting
     tmp_method(2) = 2  ! PPM, positive-definite using FCT
@@ -110,7 +115,7 @@ contains
 
 	300 continue
 	tmp_method(1) = 98
-	tmp_method(2) = 99
+!	tmp_method(2) = 99
 
 
 
@@ -296,15 +301,14 @@ contains
     ! (only needs to be done once)
 
     allocate(DG_nodes(0:norder), DG_wghts(0:norder),DG_L(0:norder,0:norder),DG_DL(0:norder,0:norder),STAT=ierr)
-    if(nmethod .eq. 99) THEN
-!		write(*,*) 'FILLING IN NODES/WEIGHTS'
+    if(nmethod .eq. 99 .OR. nmethod2 .eq. 99) THEN
         CALL quad_nodes(norder+1,DG_nodes)
         CALL quad_weights(norder+1,DG_nodes, DG_wghts)
 		! Fill in array of Legendre polynomials evaluated at quad nodes + Leg. derivative at quad nodes
 		DO i=0,norder
 			DO j=0,norder
 				DG_L(i,j) = legendre(DG_nodes(j),i)
-				DG_DL(i,j) = dlegendre(DG_nodes(i),j)
+				DG_DL(i,j) = dlegendre(DG_nodes(j),i)
 			ENDDO
 		ENDDO
     end if
@@ -331,15 +335,14 @@ contains
             xlambda(0:nx,1:ny),xmonlimit(0:nx,1:ny), &
             ylambda(1:nx,0:ny),ymonlimit(1:nx,0:ny), &
             STAT=ierr)
-       allocate(DG_u(1:nx,1:ny),DG_v(1:nx,1:ny), DG_x(1:nx),DG_y(1:ny),DG_uedge(1:nex,1:ny),DG_vedge(1:nx,1:ney) &
+       allocate(DGu0(1:nx,1:ny),DGv0(1:nx,1:ny), DG_x(1:nx),DG_y(1:ny),DGuedge0(1:nex,1:ny),DGvedge0(1:nx,1:ney) &
 				,STAT=ierr)
        allocate(DG_C(0:norder,0:norder),DG_LUC(0:norder,0:norder),IPIV(0:norder),DG_FOO(0:norder),&
 				DG_xec(1:nex),DG_yec(1:ney),STAT=ierr)
 
        
-       DG_u(:,:) = 0.D0
-	   DG_v(:,:) = 0.D0
-       
+       DGu0(:,:) = 0.D0
+	   DGv0(:,:) = 0.D0
        
        ! set up x grid
     
@@ -431,7 +434,7 @@ contains
 
 	   ! Initialize velocity fields at DG grid and element edges
        IF(nmethod .eq. 99 .or. nmethod2 .eq. 99) THEN 
-			CALL DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DG_u,DG_uedge,DG_v,DG_vedge)
+			CALL DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu0,DGuedge0,DGv0,DGvedge0)
        END IF
        q(1:nx,1:ny) = q0
 
@@ -482,11 +485,11 @@ contains
                   MAX(tmp_umax/MINVAL(dx),tmp_vmax/MINVAL(dy))/maxcfl &
                   /DBLE(noutput))
 			endif
-			if(dotimesteptest) then
-				tfinal = 4*50
-				nstep = 4*(3150)!*2**(p-1)
-				write(*,*) nstep
-			endif
+!			if(dotimesteptest) then
+!				tfinal = 4*50
+!				nstep = 4*(3150)!*2**(p-1)
+!				write(*,*) nstep
+!			endif
 
              nout = noutput
           end if
@@ -501,9 +504,9 @@ contains
                /DBLE(nout))
 			endif
 !!! QUICK JUMP
-			if(dotimesteptest) then
-				nstep = (4*3150)*2**(p-1)
-			endif
+!			if(dotimesteptest) then
+!				nstep = (4*3150)*2**(p-1)
+!			endif
        end if
 
        if(dowenounsplit) nstep = nstep*2 ! USE HALF AS BIG CFL FOR UNSPLIT WENO
@@ -558,10 +561,11 @@ contains
 !!$             ylambda = 0.d0
 !!$             ymonlimit = 0
 !!$          else
+
              call skamstep_2d(q,dqdt,utilde,vtilde,u2tilde,v2tilde, &
                   rho,rhoq,rhoprime,nx,ny,npad,dt,jcbn,&
                   xlambda,xmonlimit,ylambda,ymonlimit,& 
-                  DG_u,DG_uedge,DG_v,DG_vedge,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
+                  DGu0,DGuedge0,DGv0,DGvedge0,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
 
 !!$          end if
 
@@ -582,7 +586,6 @@ contains
                 uout = u
                 vout = v
              end if
-write(*,*) n,nstep/nout
              call output2d(q(1:nx,1:ny),uout,vout,&
             xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf, &
                   time,1,cdf_out,p)
@@ -642,7 +645,7 @@ write(*,*) n,nstep/nout
        deallocate(q,q0,dqdt,u,v,utilde,vtilde,u2,v2,u2tilde,v2tilde, &
             uout,vout,jcbn,dx,x,xf,dy,y,yf,rho,rhoprime,rhoq,&
             xlambda,xmonlimit,ylambda,ymonlimit,STAT=ierr)
-       deallocate(DG_u,DG_uedge,DG_v,DG_vedge,DG_x,DG_y, DG_C,DG_LUC, DG_FOO,DG_xec,DG_yec,STAT=ierr)
+       deallocate(DGu0,DGuedge0,DGv0,DGvedge0,DG_x,DG_y, DG_C,DG_LUC, DG_FOO,DG_xec,DG_yec,STAT=ierr)
 
     end do
     deallocate(DG_nodes,DG_wghts, DG_L,DG_DL, STAT=ierr)
@@ -693,7 +696,7 @@ write(*,*) n,nstep/nout
              psi(i,j) = pi*tmpr**2
           end do
        end do
-    case(5:6,9,15)
+    case(5:6,9,15,100)
        tfinal = 5.d0
        do j = 0,ny
           do i = 0,nx
@@ -758,6 +761,7 @@ write(*,*) n,nstep/nout
              psi(i,j) =  - xf(i) + yf(j) !yf(j) ! uniform flow: u=1; v=1
           end do
        end do
+
     
     end select
 
@@ -931,6 +935,12 @@ write(*,*) n,nstep/nout
           q = 0.5d0*(1.d0 + cos(pi*r))
        end where
 
+	   q = 1d0
+!!! QUICKJUMP
+	case(100) ! uniform field with deformation flow
+	  cdf_out = 'weno2d_uniform.nc'
+	  q = 1D0
+
     end select
 
 
@@ -993,7 +1003,7 @@ write(*,*) n,nstep/nout
 				psi2Edge(i,j) = -xf(i) + (DG_yec(j)+dye/2D0)
 			ENDDO
 		ENDDO
-		CASE(5:6,9,15)
+		CASE(5:6,9,15,100)
 		! LeVeque (1996) Deformation
 
 		! Evaluate stream function for horizontal velocities
@@ -1069,7 +1079,7 @@ write(*,*) n,nstep/nout
   
   subroutine skamstep_2d(q,dqdt,u0,v0,u2,v2,rho_in,rhoq,rhoprime,nx,ny,npad,dt,jcbn,&
             xlambda,xmonlimit,ylambda,ymonlimit,&
-			DG_u,DG_uedge,DG_v,DG_vedge,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
+			DGu0,DGuedge0,DGv0,DGvedge0,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
 
     !  use forward-in-time Skamarock (2006) scheme
 
@@ -1131,34 +1141,28 @@ write(*,*) n,nstep/nout
 
 	! DG parameters
 	INTEGER, INTENT(IN) :: nex,ney,norder
-    REAL(KIND=8), DIMENSION(1:nx,1:ny) :: DG_uh,DG_vh ! u and v velocities at DG nodes half time step
-    REAL(KIND=8), DIMENSION(1:nx,1:ny), INTENT(IN) :: DG_u, DG_v ! u and v velocities at DG nodes at current time
-	REAL(KIND=8), DIMENSION(1:nex,1:ny), INTENT(IN) :: DG_uedge
-	REAL(KIND=8), DIMENSION(1:nx,1:ney), INTENT(IN) :: DG_vedge
-	REAL(KIND=8), DIMENSION(1:nex,1:ny) :: DG_uedgeh
-	REAL(KIND=8), DIMENSION(1:nx,1:ney) :: DG_vedgeh
+    REAL(KIND=8), DIMENSION(1:nx,1:ny), INTENT(IN) :: DGu0, DGv0 ! u and v velocities at DG nodes at current time
+	REAL(KIND=8), DIMENSION(1:nex,1:ny), INTENT(IN) :: DGuedge0
+	REAL(KIND=8), DIMENSION(1:nx,1:ney), INTENT(IN) :: DGvedge0
+    REAL(KIND=8), DIMENSION(1:3,1:nx,1:ny) :: DGu,DGv ! u and v velocities at DG nodes half time step
+	REAL(KIND=8), DIMENSION(1:3,1:nex,1:ny) :: DGuedge
+	REAL(KIND=8), DIMENSION(1:3,1:nx,1:ney) :: DGvedge
 
     REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN):: DG_C,DG_LUC,DG_L,DG_DL
 	INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
     REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_nodes,DG_wghts
 	REAL(KIND=8), INTENT(IN) :: dxel,dyel
 	REAL(KIND=8), DIMENSION(1:nx) :: DG_rhoq1dx,DG_rhop1dx
-    REAL(KIND=8), DIMENSION(1:nx) :: DG_u1dx
-	REAL(KIND=8), DIMENSION(1:nex) :: DG_uedge1dx
+    REAL(KIND=8), DIMENSION(1:3,1:nx) :: DGu1dx
+	REAL(KIND=8), DIMENSION(1:3,1:nex) :: DGuedge1dx
 	REAL(KIND=8), DIMENSION(1:ny) :: DG_rhoq1dy,DG_rhop1dy
-    REAL(KIND=8), DIMENSION(1:ny) :: DG_v1dy
-	REAL(KIND=8), DIMENSION(1:ney) :: DG_vedge1dy
+    REAL(KIND=8), DIMENSION(1:3,1:ny) :: DGv1dy
+	REAL(KIND=8), DIMENSION(1:3,1:ney) :: DGvedge1dy
 
+	REAL(KIND=8) :: tstar
 	LOGICAL :: dorhoupdate
 	REAL(KIND=8), DIMENSION(1:nx) :: jcbn1dx
 	REAL(KIND=8), DIMENSION(1:ny) :: jcbn1dy
-
-	
-	REAL(KIND=8) :: mux,muy
-
-	! Timing parameters
-	REAL(KIND=4), DIMENSION(2) :: tstart, tend
-	REAL(KIND=4) :: ta,tb
 
     ! set up boundary types, fluxes, limiting flags
     if(nofluxew) then
@@ -1184,24 +1188,52 @@ write(*,*) n,nstep/nout
     uh = u0
     vh = v0
     IF(nmethod .eq. 99) THEN
-        DG_uh = DG_u
-		DG_uedgeh = DG_uedge
+		DGu(1,:,:) = DGu0(:,:)
+		DGu(2,:,:) = DGu0(:,:)
+		DGu(3,:,:) = DGu0(:,:)
+
+		DGuedge(1,:,:) = DGuedge0(:,:)
+		DGuedge(2,:,:) = DGuedge0(:,:)
+		DGuedge(3,:,:) = DGuedge0(:,:)
     END IF
 	IF(nmethod2 .eq. 99) THEN
-		DG_vh = DG_v
-		DG_vedgeh = DG_vedge
+		DGv(1,:,:) = DGv0(:,:)
+		DGv(2,:,:) = DGv0(:,:)
+		DGv(3,:,:) = DGv0(:,:)
+
+		DGvedge(1,:,:) = DGvedge0(:,:)
+		DGvedge(2,:,:) = DGvedge0(:,:)
+		DGvedge(3,:,:) = DGvedge0(:,:)
 	END IF
 
     if(transient) then
        uh = uh*tfcn(t_temp)
        vh = vh*tfcn(t_temp)
        IF(nmethod .eq. 99) THEN 
-           DG_uh = DG_uh*tfcn(t_temp) ! u velocities at mid-timestep at DG nodes
-		   DG_uedgeh = DG_uedgeh*tfcn(t_temp)
+		tstar = time
+		DGu(1,:,:) = DGu(1,:,:)*tfcn(tstar)
+		DGuedge(1,:,:) = DGuedge(1,:,:)*tfcn(tstar)
+
+		tstar = time+dt
+		DGu(2,:,:) = DGu(1,:,:)*tfcn(tstar)
+		DGuedge(2,:,:) = DGuedge(2,:,:)*tfcn(tstar)
+
+		tstar = time+dt/2d0
+		DGu(3,:,:) = DGu(3,:,:)*tfcn(tstar)
+		DGuedge(3,:,:) = DGuedge(3,:,:)*tfcn(tstar)
        END IF
 	   IF(nmethod2 .eq. 99) THEN
-		   DG_vh = DG_vh*tfcn(t_temp) ! v velocities at mid-timestep at DG nodes
-		   DG_vedgeh = DG_vedgeh*tfcn(t_temp)
+		tstar = time
+		DGv(1,:,:) = DGv(1,:,:)*tfcn(tstar)
+		DGvedge(1,:,:) = DGvedge(1,:,:)*tfcn(tstar)
+
+		tstar = time+dt
+		DGv(2,:,:) = DGv(1,:,:)*tfcn(tstar)
+		DGvedge(2,:,:) = DGvedge(2,:,:)*tfcn(tstar)
+
+		tstar = time+dt/2d0
+		DGv(3,:,:) = DGv(3,:,:)*tfcn(tstar)
+		DGvedge(3,:,:) = DGvedge(3,:,:)*tfcn(tstar)
 	   END IF
     end if
 
@@ -1282,22 +1314,16 @@ write(*,*) n,nstep/nout
           rhoprime1dx(1:nx) = rhoprime(1:nx,j)
 
           IF(nmethod .eq. 99) THEN
-
 		   dorhoupdate = .TRUE.
 		   jcbn1dx(1:nx) = jcbn(1:nx,j)
 
-		   DG_u1dx(1:nx) = DG_uh(1:nx,j)	
-		   DG_uedge1dx(1:nex) = DG_uedgeh(1:nex,j)	  
+		   DGu1dx(1:3,1:nx) = DGu(1:3,1:nx,j)	
+		   DGuedge1dx(1:3,1:nex) = DGuedge(1:3,1:nex,j)	  
  
-		   IF(dodghybrid) THEN
-			! Take values from rhoq and rhoprime arrays (cell averages)
-		   	 DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
-			 DG_rhop1dx(1:nx) = rhoprime1dx(1:nx)
-		   ELSE
-			 write(*,*) '#### ERROR ATTEMPTING TO DO DG W/OUT CELL AVERAGES!!!'
-		   END IF
-		  
- 		  go to 101
+		   ! Take values from rhoq and rhoprime arrays (cell averages)
+		   DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
+		   DG_rhop1dx(1:nx) = rhoprime1dx(1:nx)
+    		   go to 101
 		  END IF
 
           if(nofluxew) then
@@ -1343,8 +1369,8 @@ write(*,*) n,nstep/nout
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,DG_uedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,& 
-					   DG_L,DG_DL,dodghybrid, dorhoupdate,jcbn1dx)
+                       DG_rhoq1dx,DG_rhop1dx,DGu1dx,DGuedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,& 
+					   DG_L,DG_DL,dorhoupdate,jcbn1dx)
 
           ! update solution
 		  IF(nmethod .eq. 99) THEN
@@ -1364,21 +1390,17 @@ write(*,*) n,nstep/nout
           q1dy(1:ny)     = q(i,1:ny)
           rhoq1dy(1:ny)  = rhoq(i,1:ny)
           rhoprime1dy(1:ny) = rhoprime(i,1:ny)
+
           IF(nmethod2 .eq. 99) THEN
-
-
 		   dorhoupdate = .FALSE.
 		   jcbn1dy(1:ny) = jcbn(i,1:ny)
 
-		   DG_v1dy(1:ny) = DG_vh(i,1:ny)
-		   DG_vedge1dy(1:ney) = DG_vedgeh(i,1:ney)
-		   IF(dodghybrid) THEN
-		    DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
-	 	    DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
-		   ELSE
-			write(*,*) '#### ERROR ATTEMPTING TO DO DG W/OUT CELL AVERAGES!!!'
-		   ENDIF
-go to 201
+		   DGv1dy(1:3,1:ny) = DGv(1:3,i,1:ny)
+		   DGvedge1dy(1:3,1:ney) = DGvedge(1:3,i,1:ney)
+
+		   DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
+	 	   DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
+		   go to 201
 		  END IF
 
           if(nofluxns) then
@@ -1423,8 +1445,8 @@ go to 201
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DG_v1dy,DG_vedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
-					   DG_L,DG_DL,dodghybrid,dorhoupdate,jcbn1dy)
+                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+					   DG_L,DG_DL,dorhoupdate,jcbn1dy)
 
           yflx(i,:) = tmpflx(:)
           ylambda(i,:) = tmplam(:)
@@ -1452,20 +1474,14 @@ go to 201
           rhoprime1dy(1:ny) = rhoprime(i,1:ny)
 
           IF(nmethod2 .eq. 99) THEN
-
 		   dorhoupdate = .TRUE.
 		   jcbn1dy(1:ny) = jcbn(i,1:nx)
 
-		   DG_v1dy(1:ny) = DG_vh(i,1:ny)	
-		   DG_vedge1dy(1:nex) = DG_vedgeh(i,1:ney)	   
-
-		   IF(dodghybrid) THEN
-		    DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
-	 	    DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
-		   ELSE
-			write(*,*) '#### ERROR ATTEMPTING TO DO DG W/OUT CELL AVERAGES!!!'
-		   ENDIF
-go to 301
+		   DGv1dy(1:3,1:ny) = DGv(1:3,i,1:ny)
+		   DGvedge1dy(1:3,1:ney) = DGvedge(1:3,i,1:ney)
+		   DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
+	 	   DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
+		   go to 301
 		  END IF
 
           if(nofluxns) then
@@ -1510,8 +1526,8 @@ go to 301
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DG_v1dy,DG_vedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC, IPIV, &
-					   DG_L,DG_DL,dodghybrid,dorhoupdate,jcbn1dy)
+                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC, IPIV, &
+					   DG_L,DG_DL,dorhoupdate,jcbn1dy)
 
           yflx(i,:) = tmpflx(:)
           ylambda(i,:) = tmplam(:)
@@ -1538,20 +1554,16 @@ go to 301
           rhoprime1dx(1:nx) = rhoprime(1:nx,j)
 
           IF(nmethod .eq. 99) THEN
-
 		   dorhoupdate = .FALSE.
 		   jcbn1dx(1:nx) = jcbn(1:nx,j)
 
-		   DG_u1dx(1:nx) = DG_uh(1:nx,j)	
-		   DG_uedge1dx(1:nex) = DG_uedgeh(1:nex,j)	   
-		   IF(dodghybrid) THEN
-			! Take values from rhoq and rhoprime arrays (cell averages)
-		   	 DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
-			 DG_rhop1dx(1:nx) = rhoprime1dx(1:nx)
-		   ELSE
-			write(*,*) '#### ERROR ATTEMPTING TO DO DG W/OUT CELL AVERAGES!!!'
-		   END IF
-go to 401
+		   DGu1dx(1:3,1:nx) = DGu(1:3,1:nx,j)	
+		   DGuedge1dx(1:3,1:nex) = DGuedge(1:3,1:nex,j)	  
+ 
+		   ! Take values from rhoq and rhoprime arrays (cell averages)
+		   DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
+		   DG_rhop1dx(1:nx) = rhoprime1dx(1:nx)
+		   go to 401	
 		  END IF
 
           if(nofluxew) then
@@ -1597,8 +1609,8 @@ go to 401
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DG_u1dx,DG_uedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
-					   DG_L,DG_DL,dodghybrid,dorhoupdate,jcbn1dx)
+                       DG_rhoq1dx,DG_rhop1dx,DGu1dx,DGuedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+					   DG_L,DG_DL,dorhoupdate,jcbn1dx)
 
           ! update solution
 		  IF(nmethod .eq. 99) THEN
