@@ -26,22 +26,22 @@ program execute
   write(*,*) '================'
   start_res = 8*(4+1)
   transient = .true.
-!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.001D0) !1D0/(2D0*4D0-1D0)
 
 
   write(*,*) '================'
   write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
-  transient = .false.
-!  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,1D0/(2D0*4D0-1D0)) !1D0/(2D0*4D0-1D0)
-  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
+!  transient = .false.
+  transient = .true.
+  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
   transient = .true.
-!  call test2dweno(6,start_res,start_res,2,1,0.d0,0.d0,20, &
-!				1D0/(2D0*4D0+1D0))
+  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.001D0)
 
 
   transient = .true.
@@ -88,8 +88,8 @@ contains
     character(len=8) :: outdir
 
 	! DG variables
-	INTEGER :: nex,ney, norder, isdg_x, isdg_y
-	REAL(KIND=8) :: dxel,dyel,dxm
+	INTEGER :: nex,ney,norder
+	REAL(KIND=8) :: dxel,dyel
     REAL(KIND=8), allocatable, dimension(:) :: DG_xec,DG_yec, DG_nodes,DG_wghts,DG_x,DG_y,DG_FOO
 	INTEGER, ALLOCATABLE, DIMENSION(:) :: IPIV
     REAL(KIND=8), allocatable, dimension(:,:) :: DGu0,DGv0, DGuedge0,DGvedge0,DG_C,DG_LUC,DG_L,DG_DL
@@ -254,7 +254,6 @@ contains
 		  nmethod2 = 99
 		  norder = 4
 		  write(*,*) 'Number of appx Legendre polys=',norder+1
-
         case(100)
           write(*,*) 'PPM/DG Hybrid, no limiting'
           write(*,*) 'WARNING: Should only be used with periodic BCs'
@@ -301,7 +300,7 @@ contains
     ! (only needs to be done once)
 
     allocate(DG_nodes(0:norder), DG_wghts(0:norder),DG_L(0:norder,0:norder),DG_DL(0:norder,0:norder),STAT=ierr)
-    if(nmethod .eq. 99 .OR. nmethod2 .eq. 99) THEN
+    IF(nmethod .eq. 99 .OR. nmethod2 .eq. 99) THEN
         CALL quad_nodes(norder+1,DG_nodes)
         CALL quad_weights(norder+1,DG_nodes, DG_wghts)
 		! Fill in array of Legendre polynomials evaluated at quad nodes + Leg. derivative at quad nodes
@@ -311,7 +310,7 @@ contains
 				DG_DL(i,j) = dlegendre(DG_nodes(j),i)
 			ENDDO
 		ENDDO
-    end if
+    ENDIF
     
     do p = 1,nlev
        
@@ -434,8 +433,15 @@ contains
 
 	   ! Initialize velocity fields at DG grid and element edges
        IF(nmethod .eq. 99 .or. nmethod2 .eq. 99) THEN 
-			CALL DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu0,DGuedge0,DGv0,DGvedge0)
+			CALL DGinit2d(ntest,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu0,DGuedge0,DGv0,DGvedge0)
        END IF
+
+!QUICKJUMP : OVERWRITING DGv!
+DGvedge0(:,:) = 0d0
+DGv0(:,:) = 0d0
+DGuedge0(:,:) = 1D0
+DGu0(:,:) = 1D0
+
        q(1:nx,1:ny) = q0
 
        if (MAX(ABS(MAXVAL(dx)-MINVAL(dx)), &
@@ -485,12 +491,6 @@ contains
                   MAX(tmp_umax/MINVAL(dx),tmp_vmax/MINVAL(dy))/maxcfl &
                   /DBLE(noutput))
 			endif
-!			if(dotimesteptest) then
-!				tfinal = 4*50
-!				nstep = 4*(3150)!*2**(p-1)
-!				write(*,*) nstep
-!			endif
-
              nout = noutput
           end if
        else
@@ -503,10 +503,6 @@ contains
                MAX(tmp_umax/MINVAL(dx),tmp_vmax/MINVAL(dy))/maxcfl &
                /DBLE(nout))
 			endif
-!!! QUICK JUMP
-!			if(dotimesteptest) then
-!				nstep = (4*3150)*2**(p-1)
-!			endif
        end if
 
        if(dowenounsplit) nstep = nstep*2 ! USE HALF AS BIG CFL FOR UNSPLIT WENO
@@ -935,8 +931,6 @@ contains
           q = 0.5d0*(1.d0 + cos(pi*r))
        end where
 
-	   q = 1d0
-!!! QUICKJUMP
 	case(100) ! uniform field with deformation flow
 	  cdf_out = 'weno2d_uniform.nc'
 	  q = 1D0
@@ -950,7 +944,7 @@ contains
   end subroutine init2d
 
   ! Initialize DG arrays DGu, DGv, and DGq
-  SUBROUTINE DGinit2d(ntest,norder,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu,DGu_edge,DGv,DGv_edge)
+  SUBROUTINE DGinit2d(ntest,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu,DGu_edge,DGv,DGv_edge)
 	! Computes the initial condtions for the u and v velocity fields for use in modal DG methods
 	! u and v must be evaluated at quadrature points, as well as at element interfaces, for each level to be swept through 
 	! Outputs are DGu, DGu_edge, DGv, and DGv_edge.
@@ -959,7 +953,7 @@ contains
 	! DGv and DGv_edge are symmetrically defined, but for y sweeps.
 	! -------------------
 	IMPLICIT NONE
-	INTEGER, INTENT(IN) :: ntest,norder,nex,ney,nx,ny
+	INTEGER, INTENT(IN) :: ntest,nex,ney,nx,ny
 	REAL(KIND=8), DIMENSION(1:nx,1:ny),INTENT(OUT) :: DGu,DGv
 	REAL(KIND=8), DIMENSION(1:nex,1:ny),INTENT(OUT) :: DGu_edge
 	REAL(KIND=8), DIMENSION(1:nx,1:ney),INTENT(OUT) :: DGv_edge
@@ -1214,9 +1208,11 @@ contains
 		DGu(1,:,:) = DGu(1,:,:)*tfcn(tstar)
 		DGuedge(1,:,:) = DGuedge(1,:,:)*tfcn(tstar)
 
+
 		tstar = time+dt
 		DGu(2,:,:) = DGu(1,:,:)*tfcn(tstar)
 		DGuedge(2,:,:) = DGuedge(2,:,:)*tfcn(tstar)
+
 
 		tstar = time+dt/2d0
 		DGu(3,:,:) = DGu(3,:,:)*tfcn(tstar)
@@ -1234,6 +1230,7 @@ contains
 		tstar = time+dt/2d0
 		DGv(3,:,:) = DGv(3,:,:)*tfcn(tstar)
 		DGvedge(3,:,:) = DGvedge(3,:,:)*tfcn(tstar)
+
 	   END IF
     end if
 
@@ -1479,6 +1476,7 @@ contains
 
 		   DGv1dy(1:3,1:ny) = DGv(1:3,i,1:ny)
 		   DGvedge1dy(1:3,1:ney) = DGvedge(1:3,i,1:ney)
+
 		   DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
 	 	   DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
 		   go to 301
