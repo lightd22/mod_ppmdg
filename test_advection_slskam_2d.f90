@@ -24,7 +24,7 @@ program execute
   write(*,*) '================'
   write(*,*) 'TEST #0: Uniform field in deformation flow '
   write(*,*) '================'
-  start_res = 8*(4+1)
+  start_res = 2*(4+1)
   transient = .true.
 !  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.001D0) !1D0/(2D0*4D0-1D0)
 
@@ -32,16 +32,15 @@ program execute
   write(*,*) '================'
   write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
-!  transient = .false.
-  transient = .true.
-  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+  transient = .false.
+  call test2dweno(1,start_res,start_res,2,1,0.d0,0.d0,100,0.01d0) !1D0/(2D0*4D0-1D0)
 !  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
   transient = .true.
-  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.001D0)
+!  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0)
 
 
   transient = .true.
@@ -437,6 +436,7 @@ contains
        END IF
 
 !QUICKJUMP : OVERWRITING DGv!
+write(*,*) ' warning: overwriting velocities'
 DGvedge0(:,:) = 0d0
 DGv0(:,:) = 0d0
 DGuedge0(:,:) = 1D0
@@ -518,7 +518,7 @@ DGu0(:,:) = 1D0
 
        !transform velocity into computational space, compute jacobian
        do j = 1,ny
-          jcbn(:,j) = dx*dy(j)
+          jcbn(:,j) = 1D0!dx*dy(j)
           utilde(:,j) = u(:,j)*dy(j)                    ! Dev: Scales so that utilde = u*dy
           u2tilde(:,j) = u2(:,j)*dy(j)
        end do
@@ -1096,9 +1096,7 @@ DGu0(:,:) = 1D0
     real (kind=8), dimension(0:nx,1:ny) :: u, uh
     real (kind=8), dimension(1:nx,0:ny) :: v, vh
 
-
 !bloss    integer, parameter :: nmaxcfl = 20
-
     
     real (kind=8), dimension(1-npad-nmaxcfl:nx+npad+nmaxcfl, &
                              1-npad-nmaxcfl:ny+npad+nmaxcfl) :: rho
@@ -1135,10 +1133,10 @@ DGu0(:,:) = 1D0
 
 	! DG parameters
 	INTEGER, INTENT(IN) :: nex,ney,norder
-    REAL(KIND=8), DIMENSION(1:nx,1:ny), INTENT(IN) :: DGu0, DGv0 ! u and v velocities at DG nodes at current time
+    REAL(KIND=8), DIMENSION(1:nx,1:ny), INTENT(IN) :: DGu0, DGv0 ! u and v velocities at DG nodes
 	REAL(KIND=8), DIMENSION(1:nex,1:ny), INTENT(IN) :: DGuedge0
 	REAL(KIND=8), DIMENSION(1:nx,1:ney), INTENT(IN) :: DGvedge0
-    REAL(KIND=8), DIMENSION(1:3,1:nx,1:ny) :: DGu,DGv ! u and v velocities at DG nodes half time step
+    REAL(KIND=8), DIMENSION(1:3,1:nx,1:ny) :: DGu,DGv ! u and v velocities at DG nodes at ssprk3 substep times
 	REAL(KIND=8), DIMENSION(1:3,1:nex,1:ny) :: DGuedge
 	REAL(KIND=8), DIMENSION(1:3,1:nx,1:ney) :: DGvedge
 
@@ -1208,11 +1206,9 @@ DGu0(:,:) = 1D0
 		DGu(1,:,:) = DGu(1,:,:)*tfcn(tstar)
 		DGuedge(1,:,:) = DGuedge(1,:,:)*tfcn(tstar)
 
-
 		tstar = time+dt
 		DGu(2,:,:) = DGu(1,:,:)*tfcn(tstar)
 		DGuedge(2,:,:) = DGuedge(2,:,:)*tfcn(tstar)
-
 
 		tstar = time+dt/2d0
 		DGu(3,:,:) = DGu(3,:,:)*tfcn(tstar)
@@ -1320,7 +1316,6 @@ DGu0(:,:) = 1D0
 		   ! Take values from rhoq and rhoprime arrays (cell averages)
 		   DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
 		   DG_rhop1dx(1:nx) = rhoprime1dx(1:nx)
-    		   go to 101
 		  END IF
 
           if(nofluxew) then
@@ -1359,7 +1354,7 @@ DGu0(:,:) = 1D0
           ! get rho and rhou from 2d arrays padded above
           rho1dx(1-npadrho:nx+npadrho) = rho(1-npadrho:nx+npadrho,j)
           rhouh1d(-2:nx+2) = rhouh(-2:nx+2,j)
-101 continue
+
           call ppmwrap(rhoq1dx,q1dx,rhouh1d,rho1dx,rhoprime1dx,xflx(0,j),dt, &
                        nx,npad,nmaxcfl,xbctype,fxbc, &
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
@@ -1397,7 +1392,6 @@ DGu0(:,:) = 1D0
 
 		   DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
 	 	   DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
-		   go to 201
 		  END IF
 
           if(nofluxns) then
@@ -1436,7 +1430,7 @@ DGu0(:,:) = 1D0
           ! get rho and rhou from 2d arrays padded above
           rho1dy(1-npadrho:ny+npadrho) = rho(i,1-npadrho:ny+npadrho)
           rhovh1d(-2:ny+2) = rhovh(i,-2:ny+2)
-201 continue
+
           call ppmwrap(rhoq1dy,q1dy,rhovh1d,rho1dy,rhoprime1dy,tmpflx,dt, &
                        ny,npad,nmaxcfl,ybctype,fybc, &
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
@@ -1479,7 +1473,6 @@ DGu0(:,:) = 1D0
 
 		   DG_rhoq1dy(1:ny) = rhoq1dy(1:ny)
 	 	   DG_rhop1dy(1:ny) = rhoprime1dy(1:ny)
-		   go to 301
 		  END IF
 
           if(nofluxns) then
@@ -1518,14 +1511,14 @@ DGu0(:,:) = 1D0
           ! get rho and rhou from 2d arrays padded above
           rho1dy(1-npadrho:ny+npadrho) = rho(i,1-npadrho:ny+npadrho)
           rhovh1d(-2:ny+2) = rhovh(i,-2:ny+2)
-301 continue
           call ppmwrap(rhoq1dy,q1dy,rhovh1d,rho1dy,rhoprime1dy,tmpflx,dt, &
                        ny,npad,nmaxcfl,ybctype,fybc, &
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC, IPIV, &
+                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,&
 					   DG_L,DG_DL,dorhoupdate,jcbn1dy)
+
 
           yflx(i,:) = tmpflx(:)
           ylambda(i,:) = tmplam(:)
@@ -1561,7 +1554,6 @@ DGu0(:,:) = 1D0
 		   ! Take values from rhoq and rhoprime arrays (cell averages)
 		   DG_rhoq1dx(1:nx) = rhoq1dx(1:nx)
 		   DG_rhop1dx(1:nx) = rhoprime1dx(1:nx)
-		   go to 401	
 		  END IF
 
           if(nofluxew) then
@@ -1600,7 +1592,7 @@ DGu0(:,:) = 1D0
           ! get rho and rhou from 2d arrays padded above
           rho1dx(1-npadrho:nx+npadrho) = rho(1-npadrho:nx+npadrho,j)
           rhouh1d(-2:nx+2) = rhouh(-2:nx+2,j)
-401 continue
+
           call ppmwrap(rhoq1dx,q1dx,rhouh1d,rho1dx,rhoprime1dx,xflx(0,j),dt, &
                        nx,npad,nmaxcfl,xbctype,fxbc, &
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
@@ -1610,12 +1602,12 @@ DGu0(:,:) = 1D0
                        DG_rhoq1dx,DG_rhop1dx,DGu1dx,DGuedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
 					   DG_L,DG_DL,dorhoupdate,jcbn1dx)
 
+
           ! update solution
 		  IF(nmethod .eq. 99) THEN
 		   rhoq(1:nx,j) = DG_rhoq1dx(1:nx)
 		   rhoprime(1:nx,j) = DG_rhop1dx(1:nx)
 		   q(1:nx,j) = DG_rhoq1dx(1:nx)/DG_rhop1dx(1:nx)
-
 		  ELSE
            q(1:nx,j) = rhoq1dx(1:nx)/rhoprime1dx(1:nx)
            rhoprime(1:nx,j) = rhoprime1dx(1:nx)

@@ -29,7 +29,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! --- Local Variables
 	INTEGER :: i,j,k,stage
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rqBAR,rhoBAR,qBAR ! Reshaped cell averages
-	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: An,A,Rn,R,Q,As,Rs ! Reshaped DG coefficent matricies
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: A,A1,A2,R,R1,R2,Q,As,Rs ! Reshaped DG coefficent matricies
 	REAL(KIND=DOUBLE), DIMENSION(1:3,0:N,1:nelem) :: utild ! Reshaped velocities
 	REAL(KIND=DOUBLE), DIMENSION(1:3,0:nelem) :: uedgetild ! Periodically extended edge velocities
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: flxrq, flxrp! Array of fluxes F(j,j+1) (flx(0) is left flux at left edge of domain)
@@ -40,7 +40,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: uTmpQuad
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: uTmpEdge
 
-	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rho0BAR,R0,Rhat
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rho0BAR,R0,Rhat,q0BAR
 	! #####################################################
     ! A(k,j) gives kth coeff in the jth element for rhoq 
 	! R(k,j) gives kth coeff in the jth element for rho
@@ -56,75 +56,79 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 		rho0BAR(:,j) = jcbn1d(1+(N+1)*(j-1) : (N+1)*j)
     END DO
 
-	qBAR = rqBAR/rhoBAR
+	q0BAR = rqBAR/rhoBAR
 
 	uedgetild(1:3,1:nelem) = uedge(1:3,1:nelem)
 	uedgetild(1:3,0) = uedge(1:3,nelem)
 
-	CALL projectAverages(An,DG_LUC,IPIV,rqBAR,N,nelem) ! Project inital rhoq averages
-	CALL projectAverages(Rn,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project inital rho averages
+	CALL projectAverages(A,DG_LUC,IPIV,rqBAR,N,nelem) ! Project inital rhoq averages
+	CALL projectAverages(R,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project inital rho averages
 
-	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem)
-	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem)
-	! Initialize A and R for first stage
-	A = An 
-	R = Rn 
-	
-	Rhat = R0
+!	qBAR = rqBAR/rhoBAR
+!	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem)
+!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem)
 
-	DO stage = 1,3
-		uTmpQuad(:,:) = utild(stage,:,:)
-		uTmpEdge(:) = uedgetild(stage,:)
-!		uTmpQuad(:,:) = utild(1,:,:)
-!		uTmpEdge(:) = uedgetild(1,:)
+	uTmpQuad(:,:) = utild(1,:,:)
+	uTmpEdge(:) = uedgetild(1,:)
 
-!		CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
-		CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
-		CALL evalExpansion(Rhat,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
+	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+	CALL evalExpansion(R,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
+	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
 
-!		CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq) 
-		CALL NUMFLUX(rhoEdgeVals,rhoEdgeVals*qEdgeVals,uTmpEdge,nelem,flxrp,flxrq) 
+	fcfrq = 1D0
+	fcfrp = 1D0
 
-		fcfrq = 1D0
-		fcfrp = 1D0
-
-		! Compute forward step
-		DO j=1,nelem
-			DO k=0,N
-!				As(k,j) = A(k,j) + (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,nodes,k,j,nelem,N,fcfrq,DG_DL(k,:)) 
-!				Rs(k,j) = R(k,j) + (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,nodes,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
-				As(k,j) = A(k,j) + (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,nodes,k,j,nelem,N,fcfrq,DG_DL(k,:)) 
-				Rs(k,j) = R(k,j) + (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,nodes,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
-			ENDDO
+	DO j=1,nelem
+		DO k=0,N
+			A1(k,j) = A(k,j) + (dt/dxel)*B(rqQuadVals,flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
+!			R1(k,j) = R(k,j) + (dt/dxel)*B(rhoQuadVals,flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
 		ENDDO
-
-		SELECT CASE(stage)
-			CASE(1)
-				A = As
-				R = Rs
-			CASE(2)
-				A = 0.75D0*An + 0.25D0*As
-				R = 0.75D0*Rn + 0.25D0*Rs
-			CASE(3)
-				A = (1D0/3D0)*An + (2D0/3D0)*As
-				R = (1D0/3D0)*Rn + (2D0/3D0)*Rs
-		END SELECT
-
-		DO j=1,nelem
-			rqBAR(:,j) = MATMUL(DG_C,A(:,j))
-			rhoBAR(:,j) = MATMUL(DG_C,R(:,j))
-		ENDDO
-		qBAR = rqBAR/rhoBAR
-		CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem)	
-		Rhat = R	
-
 	ENDDO
-!write(*,*)
 
-!	DO j=1,nelem
-!		rqBAR(:,j) = MATMUL(DG_C,A(:,j))
-!		rhoBAR(:,j) = MATMUL(DG_C,R(:,j))
-!	ENDDO
+go to 999
+
+	uTmpQuad(:,:) = utild(2,:,:)
+	uTmpEdge(:) = uedgetild(2,:)
+
+	CALL evalExpansion(A1,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+	CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
+	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+
+	DO j=1,nelem
+		DO k=0,N
+			A2(k,j) = 0.75D0*A(k,j)+0.25D0*(A1(k,j) &
+				+ (dt/dxel)*B(rqQuadVals,flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
+			R2(k,j) = 0.75D0*R(k,j)+0.25D0*(R1(k,j) &
+				+ (dt/dxel)*B(rhoQuadVals,flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
+		ENDDO
+	ENDDO
+
+	uTmpQuad(:,:) = utild(3,:,:)
+	uTmpEdge(:) = uedgetild(3,:)
+
+	CALL evalExpansion(A2,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+	CALL evalExpansion(R2,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
+	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+
+	DO j=1,nelem
+		DO k=0,N
+			A(k,j) = (1D0/3D0)*A(k,j)+(2D0/3D0)*(A2(k,j) &
+						+ (dt/dxel)*B(rqQuadVals,flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
+			R(k,j) = (1D0/3D0)*R(k,j)+(2D0/3D0)*(R2(k,j) &
+						+ (dt/dxel)*B(rhoQuadVals,flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
+		ENDDO
+	ENDDO
+
+999 continue
+A = A1
+R = R1
+
+	DO j=1,nelem
+		rqBAR(:,j) = MATMUL(DG_C,A(:,j))
+		rhoBAR(:,j) = MATMUL(DG_C,R(:,j))
+	ENDDO
+
+!write(*,*) maxval(abs(rqBAR/rhoBAR-q0BAR))
 
 	IF(.NOT. dorhoupdate) THEN ! Set rho values at physical time tn+1 to be same as tn
 		DO j=1,nelem
@@ -133,14 +137,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	ENDIF
 
 	IF(doposlimit) THEN
-!		DO j=1,nelem
-!			qBAR(:,j) = rqBAR(:,j)/rhoBAR(:,j)
-!		ENDDO
 		qBAR(:,:) = rqBAR(:,:)/rhoBAR(:,:)
 		CALL MFILL(qBAR,N,nelem)
-!		DO j=1,nelem
-!			rqBAR(:,j) = qBAR(:,j)*rhoBAR(:,j)
-!		ENDDO
 		rqBAR(:,:) = qBAR(:,:)*rhoBAR(:,:) ! Done to ensure rhoq = rho*q after limiting
 	ENDIF
 
@@ -152,14 +150,14 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 
 END SUBROUTINE mDGsweep
 
-REAL(KIND=KIND(1D0)) FUNCTION B(quadVals,flx,uQuad,wghts,nodes,k,j,nelem,N,fluxcf,dLeg) 
+REAL(KIND=KIND(1D0)) FUNCTION B(quadVals,flx,uQuad,wghts,k,j,nelem,N,fluxcf,dLeg) 
 	IMPLICIT NONE
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
 
 	! --- Inputs
 	INTEGER, INTENT(IN) :: nelem, N
 	INTEGER, INTENT(IN) :: k,j ! Mode number, element number
-	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes,uQuad,dLeg
+	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,uQuad,dLeg
 	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: quadVals
 
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: flx ! Array of element edge fluxes flx(j) = F(j,j+1)
@@ -170,11 +168,15 @@ REAL(KIND=KIND(1D0)) FUNCTION B(quadVals,flx,uQuad,wghts,nodes,k,j,nelem,N,fluxc
  
 	B = SUM(wghts(:)*uQuad(:)*dLeg(:)*quadVals(:))
 
+!	write(*,*) 'chg before fluxes',B
+
 	IF(k .eq. 0) THEN
 		B = B - fluxcf(j)*flx(j) + fluxcf(j-1)*flx(j-1)
 	ELSE
 		B = B - flx(j) + ((-1D0)**k)*flx(j-1)
 	END IF
+
+!	write(*,*) 'chg due to fluxes',((-1D0)**k)*flx(j-1)-flx(j)
 	
 	B = (2D0*k+1D0)*B
 
@@ -221,6 +223,7 @@ SUBROUTINE NUMFLUX(rhoEdgeVals,rqEdgeVals,uEdge,nelem,flxrp,flxrq)
 		flxrp(j) = 0.5D0*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
 		flxrq(j) = 0.5D0*rqEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rqEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
 	ENDDO
+
 END SUBROUTINE NUMFLUX
 
 SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
@@ -231,7 +234,7 @@ SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
 	! -- Inputs
 	INTEGER, INTENT(IN) :: N, nelem,substep
-	REAL(KIND=DOUBLE), DIMENSION(0:N,0:nelem+1), INTENT(IN) :: Acur,Apre
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(IN) :: Acur,Apre
 	REAL(KIND=DOUBLE), INTENT(IN) :: dxel,dt
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: flx
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: DG_C

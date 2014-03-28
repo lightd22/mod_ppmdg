@@ -4,7 +4,7 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
      scale,nmethod,lambdamax,epslambda,lambda,monlimit, &
      DGrhoq,DGrhop,DGu,DGuedge,num_elem,elemdx,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL, &
      dorhoupdate,jcbn1d)
-
+ 
   implicit none
 
   integer, intent(in) :: N, npad, nmaxcfl, bctype(2), nmethod
@@ -45,8 +45,8 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
   INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
   REAL(KIND=8), DIMENSION(1:3,1:N), INTENT(IN) :: DGu ! Velocities at quadrature locations within each element
   REAL(KIND=8), DIMENSION(1:3,1:num_elem), INTENT(IN) :: DGuedge ! Edge velocities at RHS of each element
-  REAL(KIND=8), DIMENSION(1:N), INTENT(INOUT) :: DGrhoq, DGrhop,jcbn1d
-
+  REAL(KIND=8), DIMENSION(1:N), INTENT(INOUT) :: DGrhoq, DGrhop
+  REAL(KIND=8), DIMENSION(1:N), INTENT(IN) :: jcbn1d
 
   nselpad = 0
 
