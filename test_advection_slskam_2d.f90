@@ -24,23 +24,23 @@ program execute
   write(*,*) '================'
   write(*,*) 'TEST #0: Uniform field in deformation flow '
   write(*,*) '================'
-  start_res = 2*(4+1)
+  start_res = 4*(4+1)
   transient = .true.
-!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.001D0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(100,start_res,start_res,2,2,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
 
   write(*,*) '================'
   write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
   transient = .false.
-  call test2dweno(1,start_res,start_res,2,1,0.d0,0.d0,100,0.01d0) !1D0/(2D0*4D0-1D0)
+  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
 !  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
   transient = .true.
-!  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0)
+  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0)
 
 
   transient = .true.
@@ -435,13 +435,6 @@ contains
 			CALL DGinit2d(ntest,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu0,DGuedge0,DGv0,DGvedge0)
        END IF
 
-!QUICKJUMP : OVERWRITING DGv!
-write(*,*) ' warning: overwriting velocities'
-DGvedge0(:,:) = 0d0
-DGv0(:,:) = 0d0
-DGuedge0(:,:) = 1D0
-DGu0(:,:) = 1D0
-
        q(1:nx,1:ny) = q0
 
        if (MAX(ABS(MAXVAL(dx)-MINVAL(dx)), &
@@ -561,7 +554,7 @@ DGu0(:,:) = 1D0
              call skamstep_2d(q,dqdt,utilde,vtilde,u2tilde,v2tilde, &
                   rho,rhoq,rhoprime,nx,ny,npad,dt,jcbn,&
                   xlambda,xmonlimit,ylambda,ymonlimit,& 
-                  DGu0,DGuedge0,DGv0,DGvedge0,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
+                  DGu0,DGuedge0,DGv0,DGvedge0,nex,ney,dxel,dyel,norder,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
 
 !!$          end if
 
@@ -1073,7 +1066,7 @@ DGu0(:,:) = 1D0
   
   subroutine skamstep_2d(q,dqdt,u0,v0,u2,v2,rho_in,rhoq,rhoprime,nx,ny,npad,dt,jcbn,&
             xlambda,xmonlimit,ylambda,ymonlimit,&
-			DGu0,DGuedge0,DGv0,DGvedge0,nex,ney,dxel,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
+			DGu0,DGuedge0,DGv0,DGvedge0,nex,ney,dxel,dyel,norder,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL)
 
     !  use forward-in-time Skamarock (2006) scheme
 
@@ -1142,7 +1135,7 @@ DGu0(:,:) = 1D0
 
     REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN):: DG_C,DG_LUC,DG_L,DG_DL
 	INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
-    REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_nodes,DG_wghts
+    REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_wghts
 	REAL(KIND=8), INTENT(IN) :: dxel,dyel
 	REAL(KIND=8), DIMENSION(1:nx) :: DG_rhoq1dx,DG_rhop1dx
     REAL(KIND=8), DIMENSION(1:3,1:nx) :: DGu1dx
@@ -1203,10 +1196,12 @@ DGu0(:,:) = 1D0
        vh = vh*tfcn(t_temp)
        IF(nmethod .eq. 99) THEN 
 		tstar = time
+!		tstar = time+dt/2d0
 		DGu(1,:,:) = DGu(1,:,:)*tfcn(tstar)
 		DGuedge(1,:,:) = DGuedge(1,:,:)*tfcn(tstar)
 
 		tstar = time+dt
+!		tstar = time+dt/2d0
 		DGu(2,:,:) = DGu(1,:,:)*tfcn(tstar)
 		DGuedge(2,:,:) = DGuedge(2,:,:)*tfcn(tstar)
 
@@ -1216,10 +1211,12 @@ DGu0(:,:) = 1D0
        END IF
 	   IF(nmethod2 .eq. 99) THEN
 		tstar = time
+!		tstar = time+dt/2d0
 		DGv(1,:,:) = DGv(1,:,:)*tfcn(tstar)
 		DGvedge(1,:,:) = DGvedge(1,:,:)*tfcn(tstar)
 
 		tstar = time+dt
+!		tstar = time+dt/2d0
 		DGv(2,:,:) = DGv(1,:,:)*tfcn(tstar)
 		DGvedge(2,:,:) = DGvedge(2,:,:)*tfcn(tstar)
 
@@ -1361,7 +1358,7 @@ DGu0(:,:) = 1D0
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DGu1dx,DGuedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,& 
+                       DG_rhoq1dx,DG_rhop1dx,DGu1dx,DGuedge1dx,nex,dxel,norder,DG_wghts,DG_C,DG_LUC,IPIV,& 
 					   DG_L,DG_DL,dorhoupdate,jcbn1dx)
 
           ! update solution
@@ -1436,7 +1433,7 @@ DGu0(:,:) = 1D0
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_wghts,DG_C,DG_LUC,IPIV, &
 					   DG_L,DG_DL,dorhoupdate,jcbn1dy)
 
           yflx(i,:) = tmpflx(:)
@@ -1516,7 +1513,7 @@ DGu0(:,:) = 1D0
                        dosemilagr,dosellimit,domonlimit,doposlimit, &
                        dopcm, dowenosplit, &
                        scale,nmethod2,lambdamax,epslambda,tmplam, tmpmon, &
-                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,&
+                       DG_rhoq1dy,DG_rhop1dy,DGv1dy,DGvedge1dy,ney,dyel,norder,DG_wghts,DG_C,DG_LUC,IPIV,&
 					   DG_L,DG_DL,dorhoupdate,jcbn1dy)
 
 
@@ -1599,7 +1596,7 @@ DGu0(:,:) = 1D0
                        dopcm, dowenosplit, &
                        scale,nmethod,lambdamax,epslambda, &
                        xlambda(0,j),xmonlimit(0,j), &
-                       DG_rhoq1dx,DG_rhop1dx,DGu1dx,DGuedge1dx,nex,dxel,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV, &
+                       DG_rhoq1dx,DG_rhop1dx,DGu1dx,DGuedge1dx,nex,dxel,norder,DG_wghts,DG_C,DG_LUC,IPIV, &
 					   DG_L,DG_DL,dorhoupdate,jcbn1dx)
 
 

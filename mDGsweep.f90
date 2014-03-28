@@ -3,7 +3,7 @@
 ! By: Devin Light
 ! --------------------------------------------------------------------
 
-SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt, & 
+SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt, & 
 			        doposlimit,dorhoupdate,jcbn1d)
 	USE mDGmod
 	IMPLICIT NONE
@@ -16,7 +16,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	! --- Inputs
 	INTEGER, INTENT(IN) :: nelem,N ! Number of elements, highest degree of Legendre polynomial being used
 	REAL(KIND=DOUBLE), INTENT(IN) :: dxel,dt ! Element width, Finite Volume sub-cell width, time step
-	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts,nodes ! Quadrature weights and node locations
+	REAL(KIND=DOUBLE), DIMENSION(0:N), INTENT(IN) :: wghts ! Quadrature weights and node locations
 	REAL(KIND=DOUBLE), DIMENSION(0:N,0:N), INTENT(IN) :: DG_C, DG_LUC,DG_L,DG_DL! C matrix, used to xfer between grids, LU decomp of C
 	INTEGER, DIMENSION(0:N), INTENT(IN):: IPIV ! Pivot array for RHS when using DG_LUC
 	REAL(KIND=DOUBLE), DIMENSION(1:3,1:(nelem*(N+1))), INTENT(IN) :: u ! Velocities at quadrature locations within each element
@@ -40,7 +40,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: uTmpQuad
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: uTmpEdge
 
-	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rho0BAR,R0,Rhat,q0BAR
+	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rho0BAR,R0
+
 	! #####################################################
     ! A(k,j) gives kth coeff in the jth element for rhoq 
 	! R(k,j) gives kth coeff in the jth element for rho
@@ -56,17 +57,15 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 		rho0BAR(:,j) = jcbn1d(1+(N+1)*(j-1) : (N+1)*j)
     END DO
 
-	q0BAR = rqBAR/rhoBAR
-
 	uedgetild(1:3,1:nelem) = uedge(1:3,1:nelem)
 	uedgetild(1:3,0) = uedge(1:3,nelem)
 
-	CALL projectAverages(A,DG_LUC,IPIV,rqBAR,N,nelem) ! Project inital rhoq averages
-	CALL projectAverages(R,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project inital rho averages
+	CALL projectAverages(A,DG_LUC,IPIV,rqBAR,N,nelem) ! Project incoming rhoq averages
+	CALL projectAverages(R,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project incoming rho averages
 
-!	qBAR = rqBAR/rhoBAR
-!	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem)
-!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem)
+	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem) ! Project initial rho averages (used in computing fluxes and quad values)
+	qBAR = rqBAR/rhoBAR ! Compute incoming q averages
+	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project incoming q averages (used in computing fluxes and quad values)
 
 	uTmpQuad(:,:) = utild(1,:,:)
 	uTmpEdge(:) = uedgetild(1,:)
@@ -75,17 +74,20 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,nodes,DG_C,DG_LUC,DG_L,
 	CALL evalExpansion(R,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
 	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
 
+!	CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
+!	CALL evalExpansion(R0,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
+!	CALL NUMFLUX(rhoEdgeVals,rhoEdgeVals*qEdgeVals,uTmpEdge,nelem,flxrp,flxrq) ! Evaluate fluxes using rho0 and q
+
 	fcfrq = 1D0
 	fcfrp = 1D0
 
 	DO j=1,nelem
 		DO k=0,N
-			A1(k,j) = A(k,j) + (dt/dxel)*B(rqQuadVals,flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
-!			R1(k,j) = R(k,j) + (dt/dxel)*B(rhoQuadVals,flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
+			A1(k,j) = A(k,j) + (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
+!			A1(k,j) = A(k,j) + (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
+			R1(k,j) = R(k,j) + (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
 		ENDDO
 	ENDDO
-
-go to 999
 
 	uTmpQuad(:,:) = utild(2,:,:)
 	uTmpEdge(:) = uedgetild(2,:)
@@ -94,12 +96,26 @@ go to 999
 	CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
 	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
 
+!	! Average A1 and R1 to get next stage of Q
+!	DO j=1,nelem
+!		rqBAR(:,j) = MATMUL(DG_C,A1(:,j))
+!		rhoBAR(:,j) = MATMUL(DG_C,R1(:,j))
+!	ENDDO	
+!	qBAR = rqBAR/rhoBAR ! Update q to next stage
+!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project next stage q averages
+
+!	CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
+!	CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Use rho at staged value
+!	CALL NUMFLUX(rhoEdgeVals,rhoEdgeVals*qEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+
 	DO j=1,nelem
 		DO k=0,N
 			A2(k,j) = 0.75D0*A(k,j)+0.25D0*(A1(k,j) &
-				+ (dt/dxel)*B(rqQuadVals,flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
+				+ (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
+!			A2(k,j) = 0.75D0*A(k,j)+0.25D0*(A1(k,j) &
+!				+ (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
 			R2(k,j) = 0.75D0*R(k,j)+0.25D0*(R1(k,j) &
-				+ (dt/dxel)*B(rhoQuadVals,flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
+				+ (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
 		ENDDO
 	ENDDO
 
@@ -110,25 +126,33 @@ go to 999
 	CALL evalExpansion(R2,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
 	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
 
+!	! Average A2 and R2 to get next stage of Q
+!	DO j=1,nelem
+!		rqBAR(:,j) = MATMUL(DG_C,A2(:,j))
+!		rhoBAR(:,j) = MATMUL(DG_C,R2(:,j))
+!	ENDDO	
+!	qBAR = rqBAR/rhoBAR ! Update q to next stage
+!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project next stage q averages
+
+!	CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
+!	CALL evalExpansion(R2,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Use rho at staged value
+!	CALL NUMFLUX(rhoEdgeVals,rhoEdgeVals*qEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+
 	DO j=1,nelem
 		DO k=0,N
 			A(k,j) = (1D0/3D0)*A(k,j)+(2D0/3D0)*(A2(k,j) &
-						+ (dt/dxel)*B(rqQuadVals,flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
+						+ (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
+!			A(k,j) = (1D0/3D0)*A(k,j)+(2D0/3D0)*(A2(k,j) &
+!						+ (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
 			R(k,j) = (1D0/3D0)*R(k,j)+(2D0/3D0)*(R2(k,j) &
-						+ (dt/dxel)*B(rhoQuadVals,flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
+						+ (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
 		ENDDO
 	ENDDO
-
-999 continue
-A = A1
-R = R1
 
 	DO j=1,nelem
 		rqBAR(:,j) = MATMUL(DG_C,A(:,j))
 		rhoBAR(:,j) = MATMUL(DG_C,R(:,j))
 	ENDDO
-
-!write(*,*) maxval(abs(rqBAR/rhoBAR-q0BAR))
 
 	IF(.NOT. dorhoupdate) THEN ! Set rho values at physical time tn+1 to be same as tn
 		DO j=1,nelem

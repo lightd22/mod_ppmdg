@@ -2,7 +2,7 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
      N,npad,nmaxcfl,bctype,fbc, &
      dosemilagr,doselect,domonotonic,dopositive,dopcm,doweno, &
      scale,nmethod,lambdamax,epslambda,lambda,monlimit, &
-     DGrhoq,DGrhop,DGu,DGuedge,num_elem,elemdx,norder,DG_nodes,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL, &
+     DGrhoq,DGrhop,DGu,DGuedge,num_elem,elemdx,norder,DG_wghts,DG_C,DG_LUC,IPIV,DG_L,DG_DL, &
      dorhoupdate,jcbn1d)
  
   implicit none
@@ -40,7 +40,7 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
   INTEGER, INTENT(IN) :: num_elem,norder
   LOGICAL, INTENT(IN) :: dorhoupdate
   REAL(KIND=8), INTENT(IN) :: elemdx
-  REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_nodes, DG_wghts
+  REAL(KIND=8), DIMENSION(0:norder), INTENT(IN) :: DG_wghts
   REAL(KIND=8), DIMENSION(0:norder,0:norder), INTENT(IN) ::DG_C,DG_LUC,DG_L,DG_DL
   INTEGER, DIMENSION(0:norder), INTENT(IN) :: IPIV
   REAL(KIND=8), DIMENSION(1:3,1:N), INTENT(IN) :: DGu ! Velocities at quadrature locations within each element
@@ -116,7 +116,7 @@ subroutine ppmwrap(rhoq,q,rhou,rho,rhop,flx,dt, &
      case(99) ! Modal DG
 		! The inputs here are the DGrhoq and DGrhop cell average values which will be updated via SSPRK3, then evaluated at the evenly spaced grid
 		! and stored as rhoq and rhop, which are used for computing q on the plotting grid
-		 CALL mDGsweep(DGrhoq,DGrhop,DGu,DGuedge,elemdx,num_elem,norder,DG_wghts,DG_nodes,DG_C,DG_LUC,DG_L,DG_DL,&
+		 CALL mDGsweep(DGrhoq,DGrhop,DGu,DGuedge,elemdx,num_elem,norder,DG_wghts,DG_C,DG_LUC,DG_L,DG_DL,&
 					   IPIV,dt,dopositive,dorhoupdate,jcbn1d)
      case default
         write(*,*) 'nmethod = ', nmethod
