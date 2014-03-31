@@ -63,9 +63,48 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 	CALL projectAverages(A,DG_LUC,IPIV,rqBAR,N,nelem) ! Project incoming rhoq averages
 	CALL projectAverages(R,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project incoming rho averages
 
-	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem) ! Project initial rho averages (used in computing fluxes and quad values)
-	qBAR = rqBAR/rhoBAR ! Compute incoming q averages
-	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project incoming q averages (used in computing fluxes and quad values)
+	A1 = A
+	R1 = R
+
+	DO stage = 1,3
+		uTmpQuad(:,:) = utild(stage,:,:)
+		uTmpEdge(:) = uedgetild(stage,:)
+
+		CALL evalExpansion(A1,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+		CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
+		CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+
+		fcfrq = 1D0
+		fcfrp = 1D0
+
+		! Forward step
+		DO j=1,nelem
+			DO k=0,N
+				A2(k,j) = A1(k,j) + (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
+	!			A2(k,j) = A(k,j) + (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
+				R2(k,j) = R1(k,j) + (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
+			ENDDO
+		ENDDO
+
+		SELECT CASE(stage)
+		CASE(1)
+			A1 = A2
+			R1 = R2
+		CASE(2)
+			A1 = 0.75D0*A + 0.25D0*A2
+			R1 = 0.75D0*R + 0.25D0*R2
+		CASE(3)
+			A1 = (1D0/3D0)*A + (2D0/3D0)*A2
+			R1 = (1D0/3D0)*R + (2D0/3D0)*R2
+		END SELECT
+		
+	ENDDO
+A = A1
+R = R1
+go to 999
+!	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem) ! Project initial rho averages (used in computing fluxes and quad values)
+!	qBAR = rqBAR/rhoBAR ! Compute incoming q averages
+!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project incoming q averages (used in computing fluxes and quad values)
 
 	uTmpQuad(:,:) = utild(1,:,:)
 	uTmpEdge(:) = uedgetild(1,:)
@@ -96,7 +135,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 	CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
 	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
 
-!	! Average A1 and R1 to get next stage of Q
+	! Average A1 and R1 to get next stage of Q
 !	DO j=1,nelem
 !		rqBAR(:,j) = MATMUL(DG_C,A1(:,j))
 !		rhoBAR(:,j) = MATMUL(DG_C,R1(:,j))
@@ -126,7 +165,7 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 	CALL evalExpansion(R2,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
 	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
 
-!	! Average A2 and R2 to get next stage of Q
+	! Average A2 and R2 to get next stage of Q
 !	DO j=1,nelem
 !		rqBAR(:,j) = MATMUL(DG_C,A2(:,j))
 !		rhoBAR(:,j) = MATMUL(DG_C,R2(:,j))
@@ -148,6 +187,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 						+ (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
 		ENDDO
 	ENDDO
+
+999 continue
 
 	DO j=1,nelem
 		rqBAR(:,j) = MATMUL(DG_C,A(:,j))

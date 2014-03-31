@@ -24,16 +24,16 @@ program execute
   write(*,*) '================'
   write(*,*) 'TEST #0: Uniform field in deformation flow '
   write(*,*) '================'
-  start_res = 4*(4+1)
+  start_res = 8*(4+1)
   transient = .true.
-!  call test2dweno(100,start_res,start_res,2,2,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
+  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
 
   write(*,*) '================'
   write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
   transient = .false.
-  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
 !  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
   write(*,*) '================'
@@ -1196,13 +1196,11 @@ contains
        vh = vh*tfcn(t_temp)
        IF(nmethod .eq. 99) THEN 
 		tstar = time
-!		tstar = time+dt/2d0
 		DGu(1,:,:) = DGu(1,:,:)*tfcn(tstar)
 		DGuedge(1,:,:) = DGuedge(1,:,:)*tfcn(tstar)
 
 		tstar = time+dt
-!		tstar = time+dt/2d0
-		DGu(2,:,:) = DGu(1,:,:)*tfcn(tstar)
+		DGu(2,:,:) = DGu(2,:,:)*tfcn(tstar)
 		DGuedge(2,:,:) = DGuedge(2,:,:)*tfcn(tstar)
 
 		tstar = time+dt/2d0
@@ -1211,13 +1209,11 @@ contains
        END IF
 	   IF(nmethod2 .eq. 99) THEN
 		tstar = time
-!		tstar = time+dt/2d0
 		DGv(1,:,:) = DGv(1,:,:)*tfcn(tstar)
 		DGvedge(1,:,:) = DGvedge(1,:,:)*tfcn(tstar)
 
 		tstar = time+dt
-!		tstar = time+dt/2d0
-		DGv(2,:,:) = DGv(1,:,:)*tfcn(tstar)
+		DGv(2,:,:) = DGv(2,:,:)*tfcn(tstar)
 		DGvedge(2,:,:) = DGvedge(2,:,:)*tfcn(tstar)
 
 		tstar = time+dt/2d0
