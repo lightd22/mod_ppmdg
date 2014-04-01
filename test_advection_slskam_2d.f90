@@ -26,7 +26,7 @@ program execute
   write(*,*) '================'
   start_res = 8*(4+1)
   transient = .true.
-  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
 
   write(*,*) '================'
@@ -98,7 +98,7 @@ contains
 
     if(nlev.lt.1) STOP 'nlev should be at least 1 in test2dweno'
 
-    n2 = 1
+    n2 = 2
 	go to 300
     tmp_method(1) = 1  ! PPM no limiting
     tmp_method(2) = 2  ! PPM, positive-definite using FCT
@@ -114,7 +114,7 @@ contains
 
 	300 continue
 	tmp_method(1) = 98
-!	tmp_method(2) = 99
+	tmp_method(2) = 99
 
 
 

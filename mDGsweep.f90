@@ -76,6 +76,9 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 
 		fcfrq = 1D0
 		fcfrp = 1D0
+		IF(doposlimit) THEN
+			CALL FLUXCOR(A1,A,flxrq,DG_C,dxel,dt,nelem,N,stage,fcfrq)
+		ENDIF
 
 		! Forward step
 		DO j=1,nelem
@@ -99,96 +102,13 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 		END SELECT
 		
 	ENDDO
-A = A1
-R = R1
-go to 999
+
+	A = A1
+	R = R1
+
 !	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem) ! Project initial rho averages (used in computing fluxes and quad values)
 !	qBAR = rqBAR/rhoBAR ! Compute incoming q averages
 !	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project incoming q averages (used in computing fluxes and quad values)
-
-	uTmpQuad(:,:) = utild(1,:,:)
-	uTmpEdge(:) = uedgetild(1,:)
-
-	CALL evalExpansion(A,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
-	CALL evalExpansion(R,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
-	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
-
-!	CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
-!	CALL evalExpansion(R0,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
-!	CALL NUMFLUX(rhoEdgeVals,rhoEdgeVals*qEdgeVals,uTmpEdge,nelem,flxrp,flxrq) ! Evaluate fluxes using rho0 and q
-
-	fcfrq = 1D0
-	fcfrp = 1D0
-
-	DO j=1,nelem
-		DO k=0,N
-			A1(k,j) = A(k,j) + (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
-!			A1(k,j) = A(k,j) + (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
-			R1(k,j) = R(k,j) + (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
-		ENDDO
-	ENDDO
-
-	uTmpQuad(:,:) = utild(2,:,:)
-	uTmpEdge(:) = uedgetild(2,:)
-
-	CALL evalExpansion(A1,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
-	CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
-	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
-
-	! Average A1 and R1 to get next stage of Q
-!	DO j=1,nelem
-!		rqBAR(:,j) = MATMUL(DG_C,A1(:,j))
-!		rhoBAR(:,j) = MATMUL(DG_C,R1(:,j))
-!	ENDDO	
-!	qBAR = rqBAR/rhoBAR ! Update q to next stage
-!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project next stage q averages
-
-!	CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
-!	CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Use rho at staged value
-!	CALL NUMFLUX(rhoEdgeVals,rhoEdgeVals*qEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
-
-	DO j=1,nelem
-		DO k=0,N
-			A2(k,j) = 0.75D0*A(k,j)+0.25D0*(A1(k,j) &
-				+ (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
-!			A2(k,j) = 0.75D0*A(k,j)+0.25D0*(A1(k,j) &
-!				+ (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
-			R2(k,j) = 0.75D0*R(k,j)+0.25D0*(R1(k,j) &
-				+ (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
-		ENDDO
-	ENDDO
-
-	uTmpQuad(:,:) = utild(3,:,:)
-	uTmpEdge(:) = uedgetild(3,:)
-
-	CALL evalExpansion(A2,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
-	CALL evalExpansion(R2,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
-	CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
-
-	! Average A2 and R2 to get next stage of Q
-!	DO j=1,nelem
-!		rqBAR(:,j) = MATMUL(DG_C,A2(:,j))
-!		rhoBAR(:,j) = MATMUL(DG_C,R2(:,j))
-!	ENDDO	
-!	qBAR = rqBAR/rhoBAR ! Update q to next stage
-!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project next stage q averages
-
-!	CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
-!	CALL evalExpansion(R2,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem) ! Use rho at staged value
-!	CALL NUMFLUX(rhoEdgeVals,rhoEdgeVals*qEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
-
-	DO j=1,nelem
-		DO k=0,N
-			A(k,j) = (1D0/3D0)*A(k,j)+(2D0/3D0)*(A2(k,j) &
-						+ (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
-!			A(k,j) = (1D0/3D0)*A(k,j)+(2D0/3D0)*(A2(k,j) &
-!						+ (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:)))
-			R(k,j) = (1D0/3D0)*R(k,j)+(2D0/3D0)*(R2(k,j) &
-						+ (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)))
-		ENDDO
-	ENDDO
-
-999 continue
 
 	DO j=1,nelem
 		rqBAR(:,j) = MATMUL(DG_C,A(:,j))
@@ -233,42 +153,15 @@ REAL(KIND=KIND(1D0)) FUNCTION B(quadVals,flx,uQuad,wghts,k,j,nelem,N,fluxcf,dLeg
  
 	B = SUM(wghts(:)*uQuad(:)*dLeg(:)*quadVals(:))
 
-!	write(*,*) 'chg before fluxes',B
-
 	IF(k .eq. 0) THEN
 		B = B - fluxcf(j)*flx(j) + fluxcf(j-1)*flx(j-1)
 	ELSE
 		B = B - flx(j) + ((-1D0)**k)*flx(j-1)
 	END IF
 
-!	write(*,*) 'chg due to fluxes',((-1D0)**k)*flx(j-1)-flx(j)
-	
 	B = (2D0*k+1D0)*B
 
 END FUNCTION B
-
-!SUBROUTINE NUMFLUX(rhoEdgeVals,qEdgeVals,uEdge,N,nelem,flxrp,flxrq) 
-!	IMPLICIT NONE
-!	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
-!	! -- Inputs
-!	INTEGER, INTENT(IN) :: N,nelem
-!	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1), INTENT(IN) :: rhoEdgeVals,qEdgeVals
-!	REAL(KIND=DOUBLE), DIMENSION(0:nelem), INTENT(IN) :: uEdge
-!
-!	! -- Outputs	
-!	REAL(KIND=DOUBLE),DIMENSION(0:nelem), INTENT(OUT) :: flxrp,flxrq
-!
-!	! -- Local variables
-!	INTEGER :: j
-!
-!	DO j=0,nelem
-!		flxrp(j) = 0.5D0*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
-!		flxrq(j) = 0.5D0*rhoEdgeVals(1,j)*qEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+ & 
-!				   0.5D0*rhoEdgeVals(0,j+1)*qEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
-!
-!		flxrq(j) = 0.5D0*qEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*qEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
-!	ENDDO
-!END SUBROUTINE NUMFLUX
 
 SUBROUTINE NUMFLUX(rhoEdgeVals,rqEdgeVals,uEdge,nelem,flxrp,flxrq) 
 	IMPLICIT NONE
