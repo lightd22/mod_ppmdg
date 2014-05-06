@@ -1,6 +1,7 @@
 program execute
  !compileagain
   USE mDGmod ! Dev: Module containing stuff for DG
+  USE netCDF
 
   implicit none
 
@@ -33,22 +34,29 @@ program execute
   write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
   transient = .false.
-!  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.01d0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0) !1D0/(2D0*4D0-1D0)
 !  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
   transient = .true.
-  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0)
+!  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0)
 
 
-  transient = .true.
+
   write(*,*) '================'
   write(*,*) 'TEST #3: Standard cosbell deformation'
   write(*,*) '================'
+  transient = .true.
 !  call test2dweno(5,start_res,start_res,2,3,0.d0,0.d0,20,0.1d0)
+
+  write(*,*) '================'
+  write(*,*) 'TEST #4: Solid body rotation of cylinder'
+  write(*,*) '================'
   transient = .false.
+  call test2dweno(101,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
+   
 
 !  nofluxns = .true.
 !  nofluxew = .true.
@@ -78,7 +86,7 @@ contains
 
     real (kind=8) :: dt, tfinal, pi, &
          tmp_time, tmp_umax, tmp_vmax, cnvg1, cnvg2, cnvgi, &
-         tmp_qmin, tmp_qmax
+         tmp_qmin, tmp_qmax,calculatedMu,dxm,dym
     character(len=40) :: cdf_out 
     real (kind=8), external :: tfcn
     real(kind=4), dimension(2) :: tstart,tend
@@ -98,7 +106,7 @@ contains
 
     if(nlev.lt.1) STOP 'nlev should be at least 1 in test2dweno'
 
-    n2 = 2
+    n2 = 4
 	go to 300
     tmp_method(1) = 1  ! PPM no limiting
     tmp_method(2) = 2  ! PPM, positive-definite using FCT
@@ -115,6 +123,8 @@ contains
 	300 continue
 	tmp_method(1) = 98
 	tmp_method(2) = 99
+	tmp_method(3) = 1
+	tmp_method(4) = 2
 
 
 
@@ -299,6 +309,8 @@ contains
     ! (only needs to be done once)
 
     allocate(DG_nodes(0:norder), DG_wghts(0:norder),DG_L(0:norder,0:norder),DG_DL(0:norder,0:norder),STAT=ierr)
+    DG_nodes = 0D0
+    DG_wghts = 0D0
     IF(nmethod .eq. 99 .OR. nmethod2 .eq. 99) THEN
         CALL quad_nodes(norder+1,DG_nodes)
         CALL quad_weights(norder+1,DG_nodes, DG_wghts)
@@ -462,6 +474,14 @@ contains
           tmp_vmax = MAXVAL(ABS(v+v2))
        end if
 
+       IF(dodghybrid) THEN
+             dxm = dxel
+             dym = dyel
+         ELSE
+             dxm = minval(dx)
+             dym = minval(dy)
+       ENDIF !dodghybrid
+
        if(p.eq.1) then
           if (noutput.eq.-1) then
 			if(dodghybrid) then
@@ -500,18 +520,20 @@ contains
 
        if(dowenounsplit) nstep = nstep*2 ! USE HALF AS BIG CFL FOR UNSPLIT WENO
        dt = tfinal/dble(nstep)
+       calculatedMu = MAX(tmp_umax/dxm,tmp_vmax/dym)*dt
+
 
 ! QUICK JUMP
        if (p.eq.1) call output2d(q(1:nx,1:ny),u,v,&
             xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf, &
-            tfinal,-1,cdf_out,nout)
+            tfinal,-1,cdf_out,nout,calculatedMu,DG_nodes,DG_wghts,norder)
        
        call output2d(q(1:nx,1:ny),u,v,&
-            xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf,time,0,cdf_out,p)
+            xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf,time,0,cdf_out,p,calculatedMu,DG_nodes,DG_wghts,norder)
 
        !transform velocity into computational space, compute jacobian
        do j = 1,ny
-          jcbn(:,j) = 1D0!dx*dy(j)
+          jcbn(:,j) = dx*dy(j)
           utilde(:,j) = u(:,j)*dy(j)                    ! Dev: Scales so that utilde = u*dy
           u2tilde(:,j) = u2(:,j)*dy(j)
        end do
@@ -577,7 +599,7 @@ contains
              end if
              call output2d(q(1:nx,1:ny),uout,vout,&
             xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf, &
-                  time,1,cdf_out,p)
+                  time,1,cdf_out,p,calculatedMu,DG_nodes,DG_wghts,norder)
           end if
 
 !          write(*,*) 'rho min, max = ', MINVAL(rho), MAXVAL(rho)
@@ -629,7 +651,7 @@ contains
 
        if (p.eq.nlev) &
             call output2d(q(1:nx,1:ny),u,v,&
-            xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf,time,2,cdf_out,1)
+            xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf,time,2,cdf_out,1,calculatedMu,DG_nodes,DG_wghts,norder)
 
        deallocate(q,q0,dqdt,u,v,utilde,vtilde,u2,v2,u2tilde,v2tilde, &
             uout,vout,jcbn,dx,x,xf,dy,y,yf,rho,rhoprime,rhoq,&
@@ -676,7 +698,7 @@ contains
              psi(i,j) = - xf(i) + yf(j) ! uniform flow, u=v=1
           end do
        end do
-    case (3:4,10)
+    case (3:4,10,101)
        tfinal = 1.d0
        do j = 0,ny
           do i = 0,nx
@@ -928,6 +950,15 @@ contains
 	  cdf_out = 'weno2d_uniform.nc'
 	  q = 1D0
 
+	case(101) ! solid body rotation applied to cylinder
+		cdf_out = 'weno2d_rot_cylinder.nc'
+		q = 0d0
+		do j=1,ny
+			r(:,j) = sqrt((x-0.3d0)**2 + (y(j)-0.3d0)**2)
+		enddo
+		where(r .lt. 0.125d0)
+			q = 1d0
+		end where
     end select
 
 
@@ -960,7 +991,7 @@ contains
 	REAL(KIND=8), DIMENSION(0:nx,1:ny) :: psi2
 	REAL(KIND=8), DIMENSION(1:nex,0:ny) :: psi1Edge
 	REAL(KIND=8), DIMENSION(0:nx,1:ney) :: psi2Edge
-	REAL(KIND=8) :: PI,dxe,dye
+	REAL(KIND=8) :: PI,dxe,dye,tmp
 	INTEGER :: i,j,k,cur
 
 	PI = DACOS(-1D0)
@@ -1010,6 +1041,33 @@ contains
 			ENDDO
 			DO j=1,ney
 				psi2Edge(i,j) = (1D0/PI)*(DSIN(PI*xf(i))**2)*(DSIN(PI*(DG_yec(j)+dye/2D0))**2)
+			ENDDO
+		ENDDO
+
+		CASE(10,101)
+		! Solid body rotation
+
+		! Evaluate stream function for horizontal velocities
+		DO j=0,ny
+			DO i=1,nx
+				tmp = sqrt((DG_x(i)-0.5d0)**2 + (yf(j)-0.5d0)**2)
+				psi1(i,j) = PI*tmp**2
+			ENDDO
+			DO i=1,nex
+				tmp = sqrt((DG_xec(i)+dxe/2d0-0.5d0)**2 + (yf(j)-0.5d0)**2)
+				psi1Edge(i,j) = PI*tmp**2
+			ENDDO
+		ENDDO
+
+		! Evaluate stream function for vertical velocities
+		DO i=0,nx
+			DO j=1,ny
+				tmp = sqrt((xf(i)-0.5d0)**2 + (DG_y(j)-0.5d0)**2)
+				psi2(i,j) = PI*tmp**2
+			ENDDO
+			DO j=1,ney
+				tmp = sqrt((xf(i)-0.5d0)**2 + (DG_yec(j)+dye/2d0-0.5d0)**2)
+				psi2Edge(i,j) = PI*tmp**2
 			ENDDO
 		ENDDO
 
@@ -1615,7 +1673,8 @@ contains
 ! QUICK JUMP
 
   subroutine output2d(q,u,v,xlam,xmnl,ylam,ymnl,&
-       nx,ny,x,xf,y,yf,time_in,status,cdf_out,ilevel)
+       nx,ny,x,xf,y,yf,time_in,status,cdf_out,ilevel,&
+       muIn,quadNode,quadWeight,norder)
     implicit none
 
     !     VMS include statement (on UW Vax machines)
@@ -1634,9 +1693,12 @@ contains
     real (kind=8), dimension(0:ny), intent(in) :: yf
     real (kind=8), dimension(1:nx), intent(in) :: x
     real (kind=8), dimension(1:ny), intent(in) :: y
+    INTEGER, INTENT(IN) :: norder
+    REAL(KIND=8), INTENT(IN) :: muIn
+    REAL(KIND=8), DIMENSION(0:norder) :: quadNode,quadWeight
     character(len=40), intent(in) :: cdf_out ! Name of the netCDF file
 
-    integer msize,n2d,i,j,ierr,idq,idu,idv,idt,idxl,idxm,idyl,idym
+    integer msize,n2d,i,j,ierr,idq,idu,idv,idt,idxl,idxm,idyl,idym,idnode,idweight,idmu
 
     real (kind=4) :: time4
     real (kind=8) :: tfcn
@@ -1650,7 +1712,7 @@ contains
     integer cdfid               ! ID for the netCDF file to be created
     character(len=8):: xname,xfname,nxname,nxfname,uname, &
          yname,yfname,nyname,nyfname,vname, &
-         tname,ntname,qname,xmname,xlname,ymname,ylname
+         tname,ntname,qname,xmname,xlname,ymname,ylname,muname
 
     !  netCDF variables declaration
 
@@ -1659,7 +1721,7 @@ contains
     &   ,count(4) &             ! netCDF stuff;
     &   ,vdim(4)  &             ! netCDF stuff;
     &   ,ndim     &             ! netCDF stuff;
-    &   ,idx,idy,idxf,idyf,idnx,idny,idnxf,idnyf,idnt
+    &   ,idx,idy,idxf,idyf,idnx,idny,idnxf,idnyf,idnt,node_dimid
     data       &             
     &    start /1, 1, 1, 1/, count /1, 1, 1, 1/
 
@@ -1681,6 +1743,10 @@ contains
        ntname = 'nt'
        ierr = NF_REDEF(cdfid)
        ierr = NF_DEF_DIM(cdfid,TRIM(ntname),ilevel+1,idnt)
+       ierr = NF90_DEF_DIM(cdfid, "nnodes", norder+1, node_dimid)
+
+	   ierr = NF90_DEF_VAR(cdfid, "qweights",NF90_FLOAT, node_dimid, idweight)
+	   ierr = NF90_DEF_VAR(cdfid, "qnodes",NF90_FLOAT, node_dimid, idnode)
        ierr = NF_DEF_VAR(cdfid,TRIM(tname), NF_FLOAT, 1, idnt, idt)
        ierr = NF_ENDDEF(cdfid)
 
@@ -1690,6 +1756,9 @@ contains
           temp2(i+1) = DBLE(i)*time_in/DBLE(ilevel)
        end do
        ierr = NF_PUT_VAR_REAL(cdfid, idt, temp2)
+       ierr = NF90_PUT_VAR(cdfid,idweight,quadWeight)
+       ierr = NF90_PUT_VAR(cdfid,idnode,quadNode)
+
        DEALLOCATE(temp2)
        
        return
@@ -1711,6 +1780,7 @@ contains
        write(xmname,'(a4,i1)') 'XMON', ilevel
        write(ylname,'(a4,i1)') 'YLAM', ilevel
        write(ymname,'(a4,i1)') 'YMON', ilevel
+       WRITE(muname, '(a2,i1)') 'mu',ilevel
 
        nxp1=nx+1
        nyp1=ny+1
@@ -1726,6 +1796,7 @@ contains
        ierr = NF_DEF_VAR(cdfid,TRIM(xfname), NF_FLOAT, 1, idnxf, idxf)
        ierr = NF_DEF_VAR(cdfid,TRIM(yname), NF_FLOAT, 1, idny, idy)
        ierr = NF_DEF_VAR(cdfid,TRIM(yfname), NF_FLOAT, 1, idnyf, idyf)
+       ierr = NF90_DEF_VAR(cdfid, TRIM(muname),NF90_FLOAT,idmu)
 
        ndim = 3
        vdim(1) = idnx
@@ -1762,6 +1833,8 @@ contains
 
        temp4 = yf
        ierr = NF_PUT_VAR_REAL(cdfid, idyf, temp4)
+
+       ierr = NF90_PUT_VAR(cdfid,idmu,muIn)
 
        start(3) = 1
 

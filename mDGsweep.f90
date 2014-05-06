@@ -97,8 +97,8 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 			A1 = 0.75D0*A + 0.25D0*A2
 			R1 = 0.75D0*R + 0.25D0*R2
 		CASE(3)
-			A1 = (1D0/3D0)*A + (2D0/3D0)*A2
-			R1 = (1D0/3D0)*R + (2D0/3D0)*R2
+			A1 = A/3d0 + 2D0*A2/3D0
+			R1 = R/3d0 + 2D0*R2/3D0
 		END SELECT
 		
 	ENDDO
@@ -122,9 +122,10 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 	ENDIF
 
 	IF(doposlimit) THEN
-		qBAR(:,:) = rqBAR(:,:)/rhoBAR(:,:)
-		CALL MFILL(qBAR,N,nelem)
-		rqBAR(:,:) = qBAR(:,:)*rhoBAR(:,:) ! Done to ensure rhoq = rho*q after limiting
+!		qBAR(:,:) = rqBAR(:,:)/rhoBAR(:,:)
+!		CALL MFILL(qBAR,N,nelem)
+!		rqBAR(:,:) = qBAR(:,:)*rhoBAR(:,:) ! Done to ensure rhoq = rho*q after limiting
+		CALL MFILL(rqBAR,N,nelem)
 	ENDIF
 
 	! Reform original shaped arrays
