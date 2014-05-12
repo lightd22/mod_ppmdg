@@ -29,7 +29,6 @@ program execute
   transient = .true.
 !  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
-
   write(*,*) '================'
   write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
@@ -43,8 +42,6 @@ program execute
   transient = .true.
 !  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0)
 
-
-
   write(*,*) '================'
   write(*,*) 'TEST #3: Standard cosbell deformation'
   write(*,*) '================'
@@ -55,7 +52,13 @@ program execute
   write(*,*) 'TEST #4: Solid body rotation of cylinder'
   write(*,*) '================'
   transient = .false.
-  call test2dweno(101,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
+!  call test2dweno(101,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
+
+  write(*,*) '================'
+  write(*,*) 'TEST #5: Solid body rotation of cylinder (scaled to compare to franks output)'
+  write(*,*) '================'
+  transient = .false.
+  call test2dweno(201,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
    
 
 !  nofluxns = .true.
@@ -87,6 +90,7 @@ contains
     real (kind=8) :: dt, tfinal, pi, &
          tmp_time, tmp_umax, tmp_vmax, cnvg1, cnvg2, cnvgi, &
          tmp_qmin, tmp_qmax,calculatedMu,dxm,dym
+    REAL(KIND=8), DIMENSION(1:2) :: domainCenter, xEdge, yEdge
     character(len=40) :: cdf_out 
     real (kind=8), external :: tfcn
     real(kind=4), dimension(2) :: tstart,tend
@@ -322,7 +326,16 @@ contains
 			ENDDO
 		ENDDO
     ENDIF
-    
+
+    xEdge(1) = -1D0
+    xEdge(2) = 1D0
+    yEdge(:) = xEdge(:)
+    domainCenter(1) = SUM(xEdge)/SIZE(xEdge)
+    domainCenter(2) = SUM(yEdge)/SIZE(yEdge)
+
+    write(*,*) 'Domain is: [',xEdge(1),',',xEdge(2),'].'
+    write(*,*) 'Warning: Not all tests have been implemented for non-unit square domain!'
+ 
     do p = 1,nlev
        
        t0 = etime(tstart)
@@ -332,8 +345,9 @@ contains
                                         !Dev: When using DG, each element in x-direction will have norder+1 quad nodes.
        nex = INT((nx)/(norder+1))  	    !For the matrix C (used in exchanging between DG/FV) to be nonsingular, nx must be 
 	   ney = INT((ny)/(norder+1))		!a multiple of norder+1
-       dxel = 1.D0/nex           		
-	   dyel = 1.D0/ney
+
+       dxel = (xEdge(2)-xEdge(1))/nex           		
+	   dyel = (yEdge(2)-yEdge(1))/ney
 
        allocate(q(1-npad:nx+npad,1-npad:ny+npad), &
             q0(1:nx,1:ny),dqdt(1:nx,1:ny),jcbn(1:nx,1:ny), &
@@ -360,11 +374,12 @@ contains
        ! Set up x-grid for PPM
        !----------------------
 
-        do i = 1,nx
-           dx(i) = 1.d0 + xstr*COS(2.d0*pi*DBLE(i)/DBLE(nx))
-        end do
-         dx = dx/SUM(dx) ! normalize for unit length
-        xf(0) = 0.d0
+!        do i = 1,nx
+!           dx(i) = 1.d0 + xstr*COS(2.d0*pi*DBLE(i)/DBLE(nx))
+!        end do
+!        dx = dx/SUM(dx) ! normalize for unit length
+        dx = (xEdge(2)-xEdge(1))/nx
+        xf(0) = xEdge(1)
         do i = 1,nx
               xf(i) = xf(i-1) + dx(i)
               x(i) = 0.5d0*(xf(i-1)+xf(i))
@@ -376,7 +391,7 @@ contains
        !--------------------------
 
        if(nmethod.eq.99) then
-         DG_xec(1) = 0.5d0*dxel
+         DG_xec(1) = xEdge(1)+0.5d0*dxel
          do i = 2,nex
             DG_xec(i)=DG_xec(i-1)+dxel
          end do
@@ -399,7 +414,7 @@ contains
 
 	   ! Set up computational DG y-grid
        if(nmethod2.eq.99) then
-         DG_yec(1) = 0.5d0*dyel
+         DG_yec(1) = yEdge(1)+0.5d0*dyel
          do i = 2,ney
             DG_yec(i)=DG_yec(i-1)+dyel
          end do
@@ -412,11 +427,12 @@ contains
 		end if	
 
        ! set up y grid
-       do i = 1,ny
-          dy(i) = 1.d0 + ystr*COS(2.d0*pi*DBLE(i)/DBLE(ny))
-       end do
-       dy = dy/SUM(dy) ! normalize for unit length
-       yf(0) = 0.d0
+!       do i = 1,ny
+!          dy(i) = 1.d0 + ystr*COS(2.d0*pi*DBLE(i)/DBLE(ny))
+!       end do
+!       dy = dy/SUM(dy) ! normalize for unit length
+       dy = (yEdge(2)-yEdge(1))/ny
+       yf(0) = yEdge(1)
        do i = 1,ny
           yf(i) = yf(i-1) + dy(i)
           y(i) = 0.5d0*(yf(i-1)+yf(i))
@@ -440,11 +456,11 @@ contains
        dqdt = 0.d0
 
 	   ! Initialize q, velocity fields for PPM and output directory
-       call init2d(ntest,nx,ny,q0,u,v,u2,v2,x,xf,y,yf,tfinal,cdf_out)
+       call init2d(ntest,nx,ny,q0,u,v,u2,v2,x,xf,y,yf,xEdge,yEdge,tfinal,cdf_out)
 
 	   ! Initialize velocity fields at DG grid and element edges
        IF(nmethod .eq. 99 .or. nmethod2 .eq. 99) THEN 
-			CALL DGinit2d(ntest,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu0,DGuedge0,DGv0,DGvedge0)
+			CALL DGinit2d(ntest,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu0,DGuedge0,DGv0,DGvedge0,xEdge,yEdge)
        END IF
 
        q(1:nx,1:ny) = q0
@@ -667,7 +683,7 @@ contains
 992    format(12f8.4)
   end subroutine test2dweno
 
-  subroutine init2d(ntest,nx,ny,q,u,v,u2,v2,x,xf,y,yf,tfinal,cdf_out)
+  subroutine init2d(ntest,nx,ny,q,u,v,u2,v2,x,xf,y,yf,xEdge,yEdge,tfinal,cdf_out)
     implicit none
     integer, intent(in) :: ntest,nx,ny
     real(kind=8), dimension(1:nx,1:ny), intent(out) :: q
@@ -677,15 +693,23 @@ contains
     real(kind=8), dimension(1:ny), intent(in) :: y
     real(kind=8), dimension(0:nx), intent(in) :: xf
     real(kind=8), dimension(0:ny), intent(in) :: yf
+    REAL(KIND=8), DIMENSION(1:2), INTENT(IN) :: xEdge,yEdge
     real(kind=8), intent(out) :: tfinal
     character(len=40), intent(out) :: cdf_out 
 
     integer :: i, j, m, n
-    real(kind=8) :: pi, tmpr, rmax, rmin, tmpx, tmpy, tmpth
+    real(kind=8) :: pi, tmpr, rmax, rmin, tmpx, tmpy, tmpth, xc,yc,xWidth,yWidth
+    REAL(KIND=8),DIMENSION(1:2) :: domainCenter
     real(kind=8), dimension(1:nx,1:ny) :: r
     real(kind=8), dimension(0:nx,0:ny) :: psi, psi2
 
     pi = DACOS(-1D0)
+
+    xWidth = xEdge(2)-xEdge(1)
+    yWidth = yEdge(2)-yEdge(1)
+
+    domainCenter(1) = xEdge(1)+xWidth/2D0
+    domainCenter(2) = yEdge(1)+yWidth/2D0
 
     psi(:,:) = 0.d0
     psi2(:,:) = 0.d0
@@ -698,12 +722,12 @@ contains
              psi(i,j) = - xf(i) + yf(j) ! uniform flow, u=v=1
           end do
        end do
-    case (3:4,10,101)
+    case (3:4,10,101,201)
        tfinal = 1.d0
        do j = 0,ny
           do i = 0,nx
              ! solid body rotation
-             tmpr = sqrt((xf(i)-0.5d0)**2 + (yf(j)-0.5d0)**2)
+             tmpr = sqrt((xf(i)-domainCenter(1))**2 + (yf(j)-domainCenter(2))**2)
              psi(i,j) = pi*tmpr**2
           end do
        end do
@@ -833,8 +857,13 @@ contains
     case (5) ! deformation/return flow applied to cosine bell
        cdf_out =  'weno2d_def_cosinebell.nc'
        if(dosemilagr) cdf_out =  'sl_'// 'weno2d_def_cosinebell.nc'
+       ! x = 0.25d0 , y = 0.25d0 originally
+
+       xc = xEdge(1)+xWidth/4D0
+       yc = yEdge(1)+yWidth/4D0
+
        do j = 1,ny
-          r(:,j) = 4.d0*sqrt((x-0.25d0)**2 + (y(j)-0.25d0)**2)
+          r(:,j) = 4.d0*sqrt((x-xc)**2 + (y(j)-yc)**2)
        end do
        q = 0.d0
        where (r.lt.1.d0)
@@ -843,8 +872,12 @@ contains
     case (6) ! deformation/return flow applied to smoother cosine bell
        cdf_out =  'weno2d_def_smooth_cosinebell.nc'
        if(dosemilagr) cdf_out =  'sl_'// 'weno2d_def_smooth_cosinebell.nc'
+        ! x = 0.4d0 , y = 0.4d0 originally
+
+       xc = xEdge(1)+0.4D0*xWidth
+       yc = yEdge(1)+0.4D0*yWidth
        do j = 1,ny
-          r(:,j) = 3.d0*sqrt((x-0.4d0)**2 + (y(j)-0.4d0)**2)
+          r(:,j) = 3.d0*sqrt((x-xc)**2 + (y(j)-yc)**2)
        end do
        q = 0.d0
        where (r.lt.1.d0)
@@ -959,6 +992,20 @@ contains
 		where(r .lt. 0.125d0)
 			q = 1d0
 		end where
+      case(201) ! solid body rotation for cylinder (comparison to frank's code)
+        cdf_out = 'weno2d_rot_cylinder_modified.nc'
+
+        xc = xEdge(1)+xWidth/4D0
+        yc = yEdge(1)+yWidth/2D0
+
+        q = 0D0
+        DO j=1,ny
+            r(:,j) = sqrt((x-xc)**2 + (y(j)-yc)**2)
+        ENDDO !j
+        WHERE(r .lt. 0.25D0)
+            q = 1D0
+        END WHERE
+
     end select
 
 
@@ -968,7 +1015,7 @@ contains
   end subroutine init2d
 
   ! Initialize DG arrays DGu, DGv, and DGq
-  SUBROUTINE DGinit2d(ntest,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu,DGu_edge,DGv,DGv_edge)
+  SUBROUTINE DGinit2d(ntest,nex,ney,DG_x,DG_y,DG_xec,DG_yec,xf,yf,nx,ny,DGu,DGu_edge,DGv,DGv_edge,xEdge,yEdge)
 	! Computes the initial condtions for the u and v velocity fields for use in modal DG methods
 	! u and v must be evaluated at quadrature points, as well as at element interfaces, for each level to be swept through 
 	! Outputs are DGu, DGu_edge, DGv, and DGv_edge.
@@ -987,12 +1034,16 @@ contains
 	REAL(KIND=8), DIMENSION(1:ney), INTENT(IN) :: DG_yec
 	REAL(KIND=8), DIMENSION(1:nx), INTENT(IN) :: DG_x
 	REAL(KIND=8), DIMENSION(1:ny), INTENT(IN) :: DG_y
+    REAL(KIND=8), DIMENSION(1:2), INTENT(IN) :: xEdge,yEdge
 	REAL(KIND=8), DIMENSION(1:nx,0:ny) :: psi1
 	REAL(KIND=8), DIMENSION(0:nx,1:ny) :: psi2
 	REAL(KIND=8), DIMENSION(1:nex,0:ny) :: psi1Edge
 	REAL(KIND=8), DIMENSION(0:nx,1:ney) :: psi2Edge
-	REAL(KIND=8) :: PI,dxe,dye,tmp
+	REAL(KIND=8) :: PI,dxe,dye,tmp,xc,yc,xWidth,yWidth
 	INTEGER :: i,j,k,cur
+
+    xWidth = xEdge(2)-xEdge(1)
+    yWidth = yEdge(2)-yEdge(1)
 
 	PI = DACOS(-1D0)
 	dxe = DG_xec(2) - DG_xec(1)
@@ -1044,17 +1095,20 @@ contains
 			ENDDO
 		ENDDO
 
-		CASE(10,101)
+		CASE(10,101,201)
 		! Solid body rotation
+
+        xc = xEdge(1)+xWidth/2D0
+        yc = yEdge(1)+yWidth/2D0
 
 		! Evaluate stream function for horizontal velocities
 		DO j=0,ny
 			DO i=1,nx
-				tmp = sqrt((DG_x(i)-0.5d0)**2 + (yf(j)-0.5d0)**2)
+				tmp = sqrt((DG_x(i)-xc)**2 + (yf(j)-yc)**2)
 				psi1(i,j) = PI*tmp**2
 			ENDDO
 			DO i=1,nex
-				tmp = sqrt((DG_xec(i)+dxe/2d0-0.5d0)**2 + (yf(j)-0.5d0)**2)
+				tmp = sqrt((DG_xec(i)+dxe/2d0-xc)**2 + (yf(j)-yc)**2)
 				psi1Edge(i,j) = PI*tmp**2
 			ENDDO
 		ENDDO
@@ -1062,11 +1116,11 @@ contains
 		! Evaluate stream function for vertical velocities
 		DO i=0,nx
 			DO j=1,ny
-				tmp = sqrt((xf(i)-0.5d0)**2 + (DG_y(j)-0.5d0)**2)
+				tmp = sqrt((xf(i)-xc)**2 + (DG_y(j)-xc)**2)
 				psi2(i,j) = PI*tmp**2
 			ENDDO
 			DO j=1,ney
-				tmp = sqrt((xf(i)-0.5d0)**2 + (DG_yec(j)+dye/2d0-0.5d0)**2)
+				tmp = sqrt((xf(i)-xc)**2 + (DG_yec(j)+dye/2d0-yc)**2)
 				psi2Edge(i,j) = PI*tmp**2
 			ENDDO
 		ENDDO
