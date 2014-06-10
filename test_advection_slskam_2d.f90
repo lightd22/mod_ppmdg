@@ -40,7 +40,7 @@ program execute
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
   transient = .true.
-!  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0)
+  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.05D0)
 
   write(*,*) '================'
   write(*,*) 'TEST #3: Standard cosbell deformation'
@@ -52,13 +52,13 @@ program execute
   write(*,*) 'TEST #4: Solid body rotation of cylinder'
   write(*,*) '================'
   transient = .false.
-!  call test2dweno(101,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
+  call test2dweno(101,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
 
   write(*,*) '================'
   write(*,*) 'TEST #5: Solid body rotation of cylinder (scaled to compare to franks output)'
   write(*,*) '================'
   transient = .false.
-  call test2dweno(201,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
+!  call test2dweno(201,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
    
 
 !  nofluxns = .true.
@@ -110,7 +110,7 @@ contains
 
     if(nlev.lt.1) STOP 'nlev should be at least 1 in test2dweno'
 
-    n2 = 4
+    n2 = 2
 	go to 300
     tmp_method(1) = 1  ! PPM no limiting
     tmp_method(2) = 2  ! PPM, positive-definite using FCT
@@ -327,7 +327,7 @@ contains
 		ENDDO
     ENDIF
 
-    xEdge(1) = -1D0
+    xEdge(1) = 0D0
     xEdge(2) = 1D0
     yEdge(:) = xEdge(:)
     domainCenter(1) = SUM(xEdge)/SIZE(xEdge)
@@ -539,7 +539,6 @@ contains
        calculatedMu = MAX(tmp_umax/dxm,tmp_vmax/dym)*dt
 
 
-! QUICK JUMP
        if (p.eq.1) call output2d(q(1:nx,1:ny),u,v,&
             xlambda,xmonlimit,ylambda,ymonlimit,nx,ny,x,xf,y,yf, &
             tfinal,-1,cdf_out,nout,calculatedMu,DG_nodes,DG_wghts,norder)
