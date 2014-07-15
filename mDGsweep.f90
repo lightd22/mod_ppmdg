@@ -4,7 +4,7 @@
 ! --------------------------------------------------------------------
 
 SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,IPIV,dt, & 
-			        doposlimit,dorhoupdate,jcbn1d)
+			        doposlimit,dorhoupdate,rho0)
 	USE mDGmod
 	IMPLICIT NONE
 	
@@ -21,8 +21,9 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 	INTEGER, DIMENSION(0:N), INTENT(IN):: IPIV ! Pivot array for RHS when using DG_LUC
 	REAL(KIND=DOUBLE), DIMENSION(1:3,1:(nelem*(N+1))), INTENT(IN) :: u ! Velocities at quadrature locations within each element
 	REAL(KIND=DOUBLE), DIMENSION(1:3,1:nelem), INTENT(IN) :: uedge ! Edge velocities at RHS of each element
-	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: jcbn1d
+	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(IN) :: rho0
 	LOGICAL, INTENT(IN) :: doposlimit,dorhoupdate
+
 	! --- Outputs
 	REAL(KIND=DOUBLE), DIMENSION(1:(nelem*(N+1))), INTENT(INOUT) :: rhoq,rhop ! Soln as sub-cell averages within each element at FV cell centers
 
@@ -40,7 +41,12 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: uTmpQuad
 	REAL(KIND=DOUBLE), DIMENSION(0:nelem) :: uTmpEdge
 
+    REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rho0QuadVals
+	REAL(KIND=DOUBLE), DIMENSION(0:1,0:nelem+1) :: rho0EdgeVals
+
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem) :: rho0BAR,R0
+    REAL(KIND=DOUBLE) :: tmpMass
+    REAL(KIND=DOUBLE), DIMENSION(1:nelem) :: approxMass
 
 	! #####################################################
     ! A(k,j) gives kth coeff in the jth element for rhoq 
@@ -54,25 +60,37 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 
         utild(1:3,:,j) = u(1:3,1+(N+1)*(j-1) : (N+1)*j)
 
-		rho0BAR(:,j) = jcbn1d(1+(N+1)*(j-1) : (N+1)*j)
+		rho0BAR(:,j) = rho0(1+(N+1)*(j-1) : (N+1)*j)
     END DO
+    qBAR = rqBAR/rhoBAR
 
 	uedgetild(1:3,1:nelem) = uedge(1:3,1:nelem)
 	uedgetild(1:3,0) = uedge(1:3,nelem)
 
 	CALL projectAverages(A,DG_LUC,IPIV,rqBAR,N,nelem) ! Project incoming rhoq averages
 	CALL projectAverages(R,DG_LUC,IPIV,rhoBAR,N,nelem) ! Project incoming rho averages
+    CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project q = rhoq/rho averages
+
+    CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem) ! Project original rho averages (at time level n) [NOTE SHOULD ONLY REALLY BE DONE ONCE AT BEGINNING]
+    CALL evalExpansion(R0,DG_L,rho0QuadVals,rho0EdgeVals,N,nelem) ! [NOTE SHOULD ONLY REALLY BE DONE ONCE AT BEGINNING]
 
 	A1 = A
 	R1 = R
-
+ 
 	DO stage = 1,3
 		uTmpQuad(:,:) = utild(stage,:,:)
 		uTmpEdge(:) = uedgetild(stage,:)
 
-		CALL evalExpansion(A1,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
-		CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
-		CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+!		CALL evalExpansion(A1,DG_L,rqQuadVals,rqEdgeVals,N,nelem)
+!		CALL evalExpansion(R1,DG_L,rhoQuadVals,rhoEdgeVals,N,nelem)
+!		CALL NUMFLUX(rhoEdgeVals,rqEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+    
+        CALL evalExpansion(Q,DG_L,qQuadVals,qEdgeVals,N,nelem)
+        CALL NUMFLUX(rho0EdgeVals,qEdgeVals,uTmpEdge,nelem,flxrp,flxrq)
+
+!        IF(MINVAL(Q(0,:)) .lt. 0D0) THEN
+!            write(*,FMT='(A28,e12.4)') 'Warning: Psi Avg is NEGATIVE', MINVAL(Q(0,:))
+!        ENDIF
 
 		fcfrq = 1D0
 		fcfrp = 1D0
@@ -83,9 +101,11 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 		! Forward step
 		DO j=1,nelem
 			DO k=0,N
-				A2(k,j) = A1(k,j) + (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
-	!			A2(k,j) = A(k,j) + (dt/dxel)*B(rhoQuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
-				R2(k,j) = R1(k,j) + (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
+!				A2(k,j) = A1(k,j) + (dt/dxel)*B(rqQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
+!				R2(k,j) = R1(k,j) + (dt/dxel)*B(rhoQuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
+
+				A2(k,j) = A1(k,j) + (dt/dxel)*B(rho0QuadVals(:,j)*qQuadVals(:,j),flxrq,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrq,DG_DL(k,:))
+				R2(k,j) = R1(k,j) + (dt/dxel)*B(rho0QuadVals(:,j),flxrp,uTmpQuad(:,j),wghts,k,j,nelem,N,fcfrp,DG_DL(k,:)) 
 			ENDDO
 		ENDDO
 
@@ -100,33 +120,45 @@ SUBROUTINE mDGsweep(rhoq,rhop,u,uedge,dxel,nelem,N,wghts,DG_C,DG_LUC,DG_L,DG_DL,
 			A1 = A/3d0 + 2D0*A2/3D0
 			R1 = R/3d0 + 2D0*R2/3D0
 		END SELECT
-		
-	ENDDO
+
+        	DO j=1,nelem
+        		rqBAR(:,j) = MATMUL(DG_C,A1(:,j))
+        		rhoBAR(:,j) = MATMUL(DG_C,R1(:,j))
+        	ENDDO
+
+        	qBAR = rqBAR/rhoBAR
+        CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project incoming q = rhoq/rho averages
+
+!        IF(minval(SUM(qbar,DIM=2)) .lt. 0d0) THEN
+!            write(*,FMT='(A28,e12.4)') 'Warning: Psi Avg is NEGATIVE', minval(SUM(qbar,DIM=2))
+!        ENDIF
+	ENDDO ! stage
 
 	A = A1
 	R = R1
 
-!	CALL projectAverages(R0,DG_LUC,IPIV,rho0BAR,N,nelem) ! Project initial rho averages (used in computing fluxes and quad values)
-!	qBAR = rqBAR/rhoBAR ! Compute incoming q averages
-!	CALL projectAverages(Q,DG_LUC,IPIV,qBAR,N,nelem) ! Project incoming q averages (used in computing fluxes and quad values)
+!	IF(.NOT. dorhoupdate) THEN ! Set rho values at physical time tn+1 to be same as tn
+!		DO j=1,nelem
+!			rhoBAR(:,j) = rho0(1+(N+1)*(j-1) : (N+1)*j)
+!		ENDDO
+!	ENDIF
 
-	DO j=1,nelem
-		rqBAR(:,j) = MATMUL(DG_C,A(:,j))
-		rhoBAR(:,j) = MATMUL(DG_C,R(:,j))
-	ENDDO
+    IF(doposlimit) THEN
+!        tmpMass = SUM(qBAR)
 
-	IF(.NOT. dorhoupdate) THEN ! Set rho values at physical time tn+1 to be same as tn
-		DO j=1,nelem
-			rhoBAR(:,j) = jcbn1d(1+(N+1)*(j-1) : (N+1)*j)
-		ENDDO
-	ENDIF
+        approxMass = A(0,:)/R(0,:)
 
-	IF(doposlimit) THEN
-!		qBAR(:,:) = rqBAR(:,:)/rhoBAR(:,:)
-!		CALL MFILL(qBAR,N,nelem)
-!		rqBAR(:,:) = qBAR(:,:)*rhoBAR(:,:) ! Done to ensure rhoq = rho*q after limiting
-		CALL MFILL(rqBAR,N,nelem)
-	ENDIF
+!		CALL MFILL(rqBAR,N,nelem,approxMass)
+        CALL MFILL(qBAR,N,nelem,approxMass)
+!        IF( abs(tmpMass - SUM(qBAR)) .gt. 1D-13) THEN
+!            write(*,FMT='(A15,e12.4)') 'CHG After fill:',tmpMass - SUM(qBAR)
+!        ENDIF
+        rqBAR(:,:) = qBAR(:,:)*rhoBAR(:,:)
+    ENDIF
+
+!	IF(doposlimit) THEN
+!		CALL MFILL(rqBAR,N,nelem)
+!	ENDIF
 
 	! Reform original shaped arrays
     DO j=1,nelem
@@ -180,7 +212,10 @@ SUBROUTINE NUMFLUX(rhoEdgeVals,rqEdgeVals,uEdge,nelem,flxrp,flxrq)
 
 	DO j=0,nelem
 		flxrp(j) = 0.5D0*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
-		flxrq(j) = 0.5D0*rqEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rqEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+
+!		flxrq(j) = 0.5D0*rqEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+0.5D0*rqEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
+		flxrq(j) = 0.5D0*rqEdgeVals(1,j)*rhoEdgeVals(1,j)*(uEdge(j)+DABS(uEdge(j)))+ &
+                   0.5D0*rqEdgeVals(0,j+1)*rhoEdgeVals(0,j+1)*(uEdge(j)-DABS(uEdge(j)))
 	ENDDO
 
 END SUBROUTINE NUMFLUX
@@ -258,7 +293,7 @@ SUBROUTINE FLUXCOR(Acur,Apre,flx,DG_C,dxel,dt,nelem,N,substep,fluxcf)
 
 END SUBROUTINE FLUXCOR
 
-SUBROUTINE MFILL(rhoq,N,nelem)
+SUBROUTINE MFILL(rhoq,N,nelem,approxMass)
 	! Subroutine for mass filling within an element to remove negative cell averaged values
 	IMPLICIT NONE
 	INTEGER, PARAMETER :: DOUBLE = KIND(1D0)
@@ -266,9 +301,10 @@ SUBROUTINE MFILL(rhoq,N,nelem)
 	! -- Inputs
 	INTEGER, INTENT(IN) :: N,nelem
 	REAL(KIND=DOUBLE), DIMENSION(0:N,1:nelem), INTENT(INOUT) :: rhoq
+    REAL(KIND=DOUBLE), DIMENSION(1:nelem), INTENT(IN) :: approxMass
 	! -- Local Variables
 	INTEGER :: j,k
-	REAL(KIND=DOUBLE) :: r,Mp,Mt
+	REAL(KIND=DOUBLE) :: r,Mp,Mt,s
 
 	DO j=1,nelem
 		Mp = 0D0
@@ -281,6 +317,14 @@ SUBROUTINE MFILL(rhoq,N,nelem)
 		ENDDO
 
 		r = MAX(Mt,0D0)/MAX(Mp,TINY(1D0))
+
+!        s = 0.5D0*(Mt+ABS(Mt)) - approxMass(j)*0.5D0*(SIGN(1D0,Mt) - ABS(SIGN(1D0,Mt)))
+!		r = s/MAX(Mp,TINY(1D0))
+
+!        IF(Mt .lt. 0D0) THEN
+!            write(*,*) 'WARNING: negative total mass when redistributing!',Mt
+!        END IF
+
 !		IF(r .gt. 1D0) THEN
 !			write(*,*) 'WARNING REDUCTION RATIO > 1.0!!'
 !		ENDIF

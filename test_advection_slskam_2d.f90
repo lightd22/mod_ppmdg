@@ -11,7 +11,7 @@ program execute
        transient3
   real(kind=8) :: time, lambdamax, epslambda
   integer :: nmethod, nmethod2, nmaxcfl ! Dev: nmethod2 is used for sweeps in y-direction
-  integer :: start_res
+  integer :: start_res,norder
 
   nmaxcfl=2
 
@@ -22,10 +22,12 @@ program execute
   transient2 = .false.
   transient3 = .false.
 
+  norder = 4 ! order of reconstructing polynomials for DG method
+
   write(*,*) '================'
   write(*,*) 'TEST #0: Uniform field in deformation flow '
   write(*,*) '================'
-  start_res = 8*(4+1)
+  start_res = 8*(norder+1)
   transient = .true.
 !  call test2dweno(100,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
@@ -33,26 +35,26 @@ program execute
   write(*,*) 'TEST #1: Constant Diagonal Advection '
   write(*,*) '================'
   transient = .false.
-!  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0) !1D0/(2D0*4D0-1D0)
+!  call test2dweno(1,start_res,start_res,2,3,0.d0,0.d0,20,0.08d0) !1D0/(2D0*4D0-1D0)
 !  call test2dweno(99,start_res,start_res,2,3,0.d0,0.d0,20,0.01D0) !1D0/(2D0*4D0-1D0)
 
   write(*,*) '================'
   write(*,*) 'TEST #2: Smooth cosbell deformation'
   write(*,*) '================'
   transient = .true.
-  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.05D0)
+!  call test2dweno(6,start_res,start_res,2,3,0.d0,0.d0,20,0.08D0)
 
   write(*,*) '================'
   write(*,*) 'TEST #3: Standard cosbell deformation'
   write(*,*) '================'
   transient = .true.
-!  call test2dweno(5,start_res,start_res,2,3,0.d0,0.d0,20,0.1d0)
+  call test2dweno(5,start_res,start_res,2,3,0.d0,0.d0,20,0.08d0)
 
   write(*,*) '================'
   write(*,*) 'TEST #4: Solid body rotation of cylinder'
   write(*,*) '================'
   transient = .false.
-  call test2dweno(101,start_res,start_res,2,3,0.d0,0.d0,20,0.05d0)
+!  call test2dweno(101,start_res,start_res,2,3,0.d0,0.d0,20,0.08d0)
 
   write(*,*) '================'
   write(*,*) 'TEST #5: Solid body rotation of cylinder (scaled to compare to franks output)'
@@ -99,7 +101,7 @@ contains
     character(len=8) :: outdir
 
 	! DG variables
-	INTEGER :: nex,ney,norder
+	INTEGER :: nex,ney,quadOrder
 	REAL(KIND=8) :: dxel,dyel
     REAL(KIND=8), allocatable, dimension(:) :: DG_xec,DG_yec, DG_nodes,DG_wghts,DG_x,DG_y,DG_FOO
 	INTEGER, ALLOCATABLE, DIMENSION(:) :: IPIV
@@ -255,8 +257,8 @@ contains
 		  outdir = 'dgnolim/'
 		  nmethod = 99
 		  nmethod2 = 99
-		  norder = 4
-		  write(*,*) 'Number of appx Legendre polys=',norder+1
+          quadOrder = norder!CEILING( (3D0/2D0)*norder )
+		  write(*,FMT='(A5,i1,A15,i1)') ' N = ',norder,', Quad Order = ',quadOrder
 		case(99)
 		  write(*,*) 'PD-DG, averages, element mass redist'
 		  write(*,*) 'WARNING: Should only be used with periodic BCs'
@@ -265,8 +267,7 @@ contains
 		  outdir = 'dgmfill/'
 		  nmethod = 99
 		  nmethod2 = 99
-		  norder = 4
-		  write(*,*) 'Number of appx Legendre polys=',norder+1
+		  write(*,*) 'N = ',norder
         case(100)
           write(*,*) 'PPM/DG Hybrid, no limiting'
           write(*,*) 'WARNING: Should only be used with periodic BCs'
@@ -274,7 +275,6 @@ contains
 		  dodghybrid = .true.
           nmethod = 99
           nmethod2 = 1
-          norder = 5
           write(*,*) 'Number of GLL nodes=',norder+1
 		case(101)
 		  write(*,*) 'PPM/DG Hybrid, FCT, Positive, N=5'
@@ -284,7 +284,6 @@ contains
           doposlimit = .true.
 		  nmethod = 99
 		  nmethod2 = 2
-		  norder = 5
 		  write(*,*) 'Number of GLL nodes=',norder+1
 		case(102)
 		  write(*,*) 'PPM/DG Hybrid, PMOD, Positive N=5'
@@ -294,7 +293,6 @@ contains
 		  doposlimit = .true.
 		  nmethod = 99
 		  nmethod2 = 22
-		  norder = 5
 		  write(*,*) 'Number of GLL nodes=',norder+1
        end select
 
@@ -1314,7 +1312,7 @@ contains
 		DGu(2,:,:) = DGu(2,:,:)*tfcn(tstar)
 		DGuedge(2,:,:) = DGuedge(2,:,:)*tfcn(tstar)
 
-		tstar = time+dt/2d0
+		tstar = time+0.5D0*dt
 		DGu(3,:,:) = DGu(3,:,:)*tfcn(tstar)
 		DGuedge(3,:,:) = DGuedge(3,:,:)*tfcn(tstar)
        END IF
@@ -1327,7 +1325,7 @@ contains
 		DGv(2,:,:) = DGv(2,:,:)*tfcn(tstar)
 		DGvedge(2,:,:) = DGvedge(2,:,:)*tfcn(tstar)
 
-		tstar = time+dt/2d0
+		tstar = time+0.5D0*dt
 		DGv(3,:,:) = DGv(3,:,:)*tfcn(tstar)
 		DGvedge(3,:,:) = DGvedge(3,:,:)*tfcn(tstar)
 
